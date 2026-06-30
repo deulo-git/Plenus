@@ -43,27 +43,27 @@ public class BoardValidator
 
             // Requisit estricte basat en la mida de la matriu
             bool distOk = (totalCells == expectedCells);
-            sb.AppendLine($"Colour Distribution: {(distOk ? "<color=green>OK</color>" : "<color=red>ERROR</color>")} ({totalCells} celles)");
+            sb.AppendLine($"\tColour Distribution: {(distOk ? "<color=green>OK</color>" : "<color=red>ERROR</color>")} ({totalCells} Cells)");
 
             for (int s = 6; s >= 2; s--)
             {
                 int count = entry.Value.FindAll(x => x == s).Count;
                 bool isOk = (count == 1);
 
-                sb.AppendLine($"{s}-cells: {(isOk ? "<color=green>OK</color>" : "<color=red>ERROR</color>")} ({count} trobats)");
+                sb.AppendLine($"\t{s}-cells: {(isOk ? "<color=green>OK</color>" : "<color=red>ERROR</color>")} ({count} Found)");
                 if (!isOk) isValid = false;
             }
 
             // Exigim exactament 1 cel·la aïllada ja que (6+5+4+3+2) = 20, més 1 aillada = 21 (expectedCells).
             int onesCount = entry.Value.FindAll(x => x == 1).Count;
             bool isolatedOk = (onesCount == 1);
-            sb.AppendLine($"Isolated Cells: {(isolatedOk ? "<color=green>OK</color>" : "<color=red>ERROR</color>")} ({onesCount} trobats)");
+            sb.AppendLine($"\tIsolated Cells: {(isolatedOk ? "<color=green>OK</color>" : "<color=red>ERROR</color>")} ({onesCount} Found)");
             if (!isolatedOk) isValid = false;
 
             int largerGroups = entry.Value.FindAll(x => x > 6).Count;
             if (largerGroups > 0)
             {
-                sb.AppendLine($"Groups > 6: <color=red>ERROR</color> ({largerGroups} trobats)");
+                sb.AppendLine($"\tGroups > 6: <color=red>ERROR</color> ({largerGroups} Found)");
                 isValid = false;
             }
 

@@ -28,6 +28,6 @@ public class CellView : MonoBehaviour
         logicData.IsMarked = true;
         if (crossOverlay != null) crossOverlay.SetActive(true);
 
-        Debug.Log($"Cel·la clicada. Color lògic: {logicData.Color}");
+        Debug.Log($"{logicData.Color} Cell clicked");
     }
 }
