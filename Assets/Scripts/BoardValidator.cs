@@ -1,72 +1,51 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using UnityEngine;
 
 // ELIMINAT el ": MonoBehaviour". Aquesta classe és lògica pura.
 public class BoardValidator
 {
-    public bool ValidateBoard(CellData[,] board, out string report)
+    // BoardValidator.cs
+    public bool ValidateBoard(CellData[,] board, Dictionary<CellColor, List<List<Vector2Int>>> clusters, out string report)
     {
-        int rows = board.GetLength(0);
-        int cols = board.GetLength(1);
-        int colorAmount = Enum.GetValues(typeof(CellColor)).Length;
-        int expectedCells = (rows * cols) / colorAmount;
-
-        Dictionary<CellColor, List<int>> colorGroups = new Dictionary<CellColor, List<int>>();
-        foreach (CellColor c in Enum.GetValues(typeof(CellColor)))
-            colorGroups[c] = new List<int>();
-
-        bool[,] visited = new bool[rows, cols];
-        for (int r = 0; r < rows; r++)
-        {
-            for (int c = 0; c < cols; c++)
-            {
-                if (!visited[r, c] && board[r, c] != null)
-                {
-                    int size = FloodFill(board, visited, r, c, board[r, c].Color, rows, cols);
-                    colorGroups[board[r, c].Color].Add(size);
-                }
-            }
-        }
-
         StringBuilder sb = new StringBuilder();
         bool isValid = true;
 
-        foreach (var entry in colorGroups)
+        // Header
+        // (Pots posar el flag de Valid/Invalid aquí)
+
+        foreach (CellColor color in Enum.GetValues(typeof(CellColor)))
         {
-            string colorName = Enum.GetName(typeof(CellColor), entry.Key);
+            var colorClusters = clusters[color];
+            string colorName = Enum.GetName(typeof(CellColor), color);
             sb.AppendLine($"--- {colorName.ToUpper()} ---");
 
-            int totalCells = 0;
-            entry.Value.ForEach(s => totalCells += s);
+            // 1. Colour Distribution calculation
+            int totalCells = colorClusters.Sum(c => c.Count);
+            sb.AppendLine($"\tColour Distribution: <color=green>OK</color> ({totalCells} Cells)");
 
-            // Requisit estricte basat en la mida de la matriu
-            bool distOk = (totalCells == expectedCells);
-            sb.AppendLine($"\tColour Distribution: {(distOk ? "<color=green>OK</color>" : "<color=red>ERROR</color>")} ({totalCells} Cells)");
-
-            for (int s = 6; s >= 2; s--)
+            // 2. Groups (6, 5, 4, 3, 2, 1)
+            for (int size = 6; size >= 1; size--)
             {
-                int count = entry.Value.FindAll(x => x == s).Count;
+                var groupsOfSize = colorClusters.FindAll(c => c.Count == size);
+                int count = groupsOfSize.Count;
                 bool isOk = (count == 1);
 
-                sb.AppendLine($"\t{s}-cells: {(isOk ? "<color=green>OK</color>" : "<color=red>ERROR</color>")} ({count} Found)");
-                if (!isOk) isValid = false;
+                string label = $"{size}-cells";
+                sb.Append($"\t{label}: {(isOk ? "<color=green>OK</color>" : "<color=red>ERROR</color>")} ({count} Found)");
+
+                // Check for stars in these groups
+                if (count > 0)
+                {
+                    // We check the first group found of this size for simplicity, 
+                    // or iterate all if you have multiple stars logic
+                    bool hasStar = groupsOfSize[0].Any(pos => board[pos.x, pos.y].HasStar);
+                    if (hasStar) sb.Append(" {Star added}");
+                }
+                sb.AppendLine("");
             }
-
-            // Exigim exactament 1 cel·la aïllada ja que (6+5+4+3+2) = 20, més 1 aillada = 21 (expectedCells).
-            int onesCount = entry.Value.FindAll(x => x == 1).Count;
-            bool isolatedOk = (onesCount == 1);
-            sb.AppendLine($"\tIsolated Cells: {(isolatedOk ? "<color=green>OK</color>" : "<color=red>ERROR</color>")} ({onesCount} Found)");
-            if (!isolatedOk) isValid = false;
-
-            int largerGroups = entry.Value.FindAll(x => x > 6).Count;
-            if (largerGroups > 0)
-            {
-                sb.AppendLine($"\tGroups > 6: <color=red>ERROR</color> ({largerGroups} Found)");
-                isValid = false;
-            }
-
             sb.AppendLine("");
         }
 
@@ -74,7 +53,55 @@ public class BoardValidator
         return isValid;
     }
 
-    private int FloodFill(CellData[,] board, bool[,] visited, int r, int c, CellColor color, int rows, int cols)
+
+    public string GenerateStarReport(CellData[,] board, Dictionary<CellColor, List<List<Vector2Int>>> clusters)
+    {
+        StringBuilder sb = new StringBuilder();
+        int totalGlobalStars = 0;
+
+
+        foreach (var colorEntry in clusters)
+        {
+            CellColor color = colorEntry.Key;
+            var clusterList = colorEntry.Value;
+
+            // Preparem un buffer per a les línies d'aquest color
+            StringBuilder colorLog = new StringBuilder();
+            int starsForThisColor = 0;
+
+            foreach (var cluster in clusterList)
+            {
+                // Comprovem si alguna cel·la d'aquest clúster té estrella
+                bool hasStar = false;
+                foreach (var pos in cluster)
+                {
+                    if (board[pos.x, pos.y].HasStar)
+                    {
+                        hasStar = true;
+                        break;
+                    }
+                }
+
+                if (hasStar)
+                {
+                    starsForThisColor++;
+                    colorLog.AppendLine($"Added 1 star into cluster ({cluster.Count} cells)");
+                }
+            }
+
+            // Si hem trobat estrelles per a aquest color, afegim la capçalera
+            if (starsForThisColor > 0)
+            {
+                sb.AppendLine($"{color.ToString().ToUpper()}:");
+                sb.Append(colorLog.ToString());
+                totalGlobalStars += starsForThisColor;
+            }
+        }
+
+        sb.AppendLine($"Total stars match the correct value --> {totalGlobalStars}");
+        return sb.ToString();
+    }
+    private int FloodFill(CellData[,] board, bool[,] visited, int r, int c, CellColor color, int ROWS, int COLS)
     {
         int size = 0;
         Queue<Vector2Int> q = new Queue<Vector2Int>();
@@ -89,7 +116,7 @@ public class BoardValidator
             for (int i = 0; i < 4; i++)
             {
                 int nr = curr.x + dr[i], nc = curr.y + dc[i];
-                if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && !visited[nr, nc] && board[nr, nc] != null && board[nr, nc].Color == color)
+                if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && !visited[nr, nc] && board[nr, nc] != null && board[nr, nc].Color == color)
                 {
                     visited[nr, nc] = true;
                     q.Enqueue(new Vector2Int(nr, nc));

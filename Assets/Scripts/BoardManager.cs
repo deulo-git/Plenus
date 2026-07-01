@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
+using static UnityEngine.Rendering.DebugUI.Table;
 
 public class BoardManager : MonoBehaviour
 {
@@ -11,53 +12,93 @@ public class BoardManager : MonoBehaviour
     public Transform gridContainer;
     public GameObject cellPrefab;
     public ColorPalette colorPalette;
+    public GameObject starPrefab;
+    public GameObject framePrefab;
 
-    [Header("Board Settings")]
-    private int rows = 15;
-    private int cols = 7;
+    // Locked to 15x7
+    private const int ROWS = 15;
+    private const int COLS = 7;
+    private const int MIDDLE_ROW = (ROWS - 1) / 2;
     private CellData[,] boardData;
     private List<CellView> allCellViews = new List<CellView>();
 
-    // Circuit breaker variables
     private Stopwatch stopwatch = new Stopwatch();
-    private const long MAX_EXECUTION_TIME_MS = 100; // Augmentat a 100ms per més marge
-    private const int MAX_RETRIES = 50; // Total attempts before giving up
+    private const long MAX_EXECUTION_TIME_MS = 500;
+    private const int MAX_RETRIES = 100;
 
-    void Start()
+    public void GenerateBoard()
     {
-        // Board generation will be triggered externally via TestingConsole
-    }
-
-    /// <summary>
-    /// Main entry point to generate a new dynamic board.
-    /// </summary>
-    public void GenerateAndLinkBoard(int customRows, int customCols)
-    {
-        this.rows = customRows;
-        this.cols = customCols;
-
         ClearBoard();
         SetupGridLayout();
         SpawnCells();
 
-        if (GenerateValidBoard())
+        if (TryGenerateOrganicBoard())
         {
+            // 1. Primer marquem les estrelles a les dades lògiques
+            var clusters = GetColorClusters();
+            DistributeStars(clusters);
+
+            // 2. Després enllacem la lògica amb la vista (això ja té el teu Instantiate)
             LinkLogicToViews();
         }
         else
         {
-            UnityEngine.Debug.LogError("Generation failed even with dynamic sizing.");
+            UnityEngine.Debug.LogError("Generation failed for 15x7 board.");
         }
     }
 
     private void ClearBoard()
     {
-        foreach (Transform child in gridContainer)
+        // Use DestroyImmediate to ensure they are gone before we spawn new ones
+        for (int i = gridContainer.childCount - 1; i >= 0; i--)
         {
-            Destroy(child.gameObject);
+            DestroyImmediate(gridContainer.GetChild(i).gameObject);
         }
         allCellViews.Clear();
     }
+
+    private void LinkLogicToViews()
+    {
+        // Safety check
+        if (allCellViews.Count < (ROWS * COLS))
+        {
+            UnityEngine.Debug.LogError($"CRITICAL: Expected {ROWS * COLS} cells, but only spawned {allCellViews.Count}.");
+            return;
+        }
+
+        int viewIndex = 0;
+        for (int r = 0; r < ROWS; r++)
+        {
+            for (int c = 0; c < COLS; c++)
+            {
+                // Safety: Ensure we don't go out of bounds
+                if (viewIndex < allCellViews.Count)
+                {
+                    CellView cv = allCellViews[viewIndex];
+                    CellData data = boardData[r, c];
+
+                    cv.Initialize(data, colorPalette.GetColor(data.Color));
+
+                    if (boardData[r, c].HasStar)
+                    {
+                        GameObject star = Instantiate(starPrefab, cv.transform);
+                        // Opcional: posa-la al centre o fes-la filla del transform de la cel·la
+                        star.transform.localPosition = Vector3.zero;
+                    }
+                    // 2. Lògica per als marcs (Frame)
+                    if (r == MIDDLE_ROW && framePrefab != null)
+                    {
+                        GameObject frame = Instantiate(framePrefab, cv.transform, false);
+                        // Si el marc té una mida diferent, ajusta la posició:
+                        frame.transform.localPosition = Vector3.zero;
+                    }
+
+                    viewIndex++;
+                }
+            }
+        }
+    }
+
 
     private void SetupGridLayout()
     {
@@ -65,14 +106,13 @@ public class BoardManager : MonoBehaviour
         if (gridLayout != null)
         {
             gridLayout.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
-            gridLayout.constraintCount = cols;
+            gridLayout.constraintCount = COLS;
         }
     }
 
     private void SpawnCells()
     {
-        int totalCells = rows * cols;
-        for (int i = 0; i < totalCells; i++)
+        for (int i = 0; i < ROWS * COLS; i++)
         {
             GameObject newCell = Instantiate(cellPrefab, gridContainer);
             CellView cv = newCell.GetComponent<CellView>();
@@ -80,103 +120,117 @@ public class BoardManager : MonoBehaviour
         }
     }
 
-    private bool GenerateValidBoard()
-    {
-        for (int i = 0; i < MAX_RETRIES; i++)
-        {
-            if (TryGenerateOrganicBoard()) return true;
-        }
-        return false;
-    }
-
-    // =========================================================
-    // CORE LOGIC: Backtracking Generation (Phases A & B)
-    // =========================================================
     private bool TryGenerateOrganicBoard()
     {
-        stopwatch.Restart();
-        int[,] ownerGrid = new int[rows, cols];
-        int cellsPerColor = (rows * cols) / 5;
-
-        // Log de inici per depuració
-        UnityEngine.Debug.Log($"Attempting generation for {rows}x{cols}...");
-
-        // DYNAMIC RECIPE: This is the fix. We don't force [6,5,4,3,2,1].
-        // We generate a valid sum of 21 (or target) dynamically.
-        List<int> recipe = GenerateDynamicRecipe(cellsPerColor);
-
-        // Convert recipe to frequency dictionary for the partition algorithm
-        Dictionary<int, int> remainingSizes = new Dictionary<int, int>();
-        foreach (int size in recipe)
+        for (int attempt = 0; attempt < MAX_RETRIES; attempt++)
         {
-            if (!remainingSizes.ContainsKey(size)) remainingSizes[size] = 0;
-            remainingSizes[size] += 5; // 5 colors
-        }
+            stopwatch.Restart();
+            int[,] ownerGrid = new int[ROWS, COLS];
 
-        int steps = 0;
-        if (SolvePartition(ownerGrid, remainingSizes, 1, ref steps))
-        {
-            return TryColorGraph(ownerGrid);
+            // Fixed recipe: 6, 5, 4, 3, 2, 1 for each of the 5 colors
+            Dictionary<int, int> remainingSizes = new Dictionary<int, int> {
+                {6, 5}, {5, 5}, {4, 5}, {3, 5}, {2, 5}, {1, 5}
+            };
+
+            int steps = 0;
+            if (SolvePartition(ownerGrid, remainingSizes, 1, ref steps))
+            {
+                return TryColorGraph(ownerGrid);
+            }
         }
         return false;
     }
 
-    private List<int> GenerateDynamicRecipe(int totalCellsPerColor)
+    private bool TryColorGraph(int[,] ownerGrid)
     {
-        List<int> recipe = new List<int>();
-        int remaining = totalCellsPerColor;
-
-        // Classic pieces distribution approach
-        while (remaining > 0)
+        Dictionary<int, Region> regions = new Dictionary<int, Region>();
+        for (int r = 0; r < ROWS; r++)
         {
-            int size = Mathf.Min(remaining, UnityEngine.Random.Range(2, 7));
-            recipe.Add(size);
-            remaining -= size;
-        }
-        return recipe;
-    }
-
-    /// <summary>
-    /// Calculates the distribution of cluster sizes dynamically based on the 
-    /// total cells available per color. 
-    /// </summary>
-    private Dictionary<int, int> DetermineClusterSizes(int cellsPerColor)
-    {
-        Dictionary<int, int> distribution = new Dictionary<int, int>();
-        int remainingCells = cellsPerColor;
-
-        // Try to fit standard cluster sizes from 6 down to 1
-        // We want a mix of shapes for the "organic" look
-        int[] availableSizes = { 6, 5, 4, 3, 2, 1 };
-
-        int sizeIndex = 0;
-        while (remainingCells > 0 && sizeIndex < availableSizes.Length)
-        {
-            int size = availableSizes[sizeIndex];
-
-            // If we have enough cells to fit this size, add it
-            if (remainingCells >= size)
+            for (int c = 0; c < COLS; c++)
             {
-                if (!distribution.ContainsKey(size)) distribution[size] = 0;
-                distribution[size]++;
-                remainingCells -= size;
-            }
-            else
-            {
-                // If we can't fit this size, move to a smaller size
-                sizeIndex++;
+                int id = ownerGrid[r, c];
+                if (!regions.ContainsKey(id)) regions[id] = new Region { id = id, size = 0 };
+                regions[id].size++;
+
+                int[] dx = { -1, 1, 0, 0 }, dy = { 0, 0, -1, 1 };
+                for (int i = 0; i < 4; i++)
+                {
+                    int nx = r + dx[i], ny = c + dy[i];
+                    if (nx >= 0 && nx < ROWS && ny >= 0 && ny < COLS)
+                    {
+                        int nid = ownerGrid[nx, ny];
+                        if (nid != 0 && nid != id) regions[id].neighbors.Add(nid);
+                    }
+                }
             }
         }
 
-        // Multiply the distribution by 5 because we need the same architecture for all 5 colors
-        Dictionary<int, int> globalDistribution = new Dictionary<int, int>();
-        foreach (var kvp in distribution)
-        {
-            globalDistribution[kvp.Key] = kvp.Value * 5;
-        }
+        var regionList = regions.Values.ToList();
+        var colorUsage = new Dictionary<CellColor, HashSet<int>>();
+        foreach (CellColor c in Enum.GetValues(typeof(CellColor))) colorUsage[c] = new HashSet<int>();
 
-        return globalDistribution;
+        if (SolveColoring(regionList, 0, colorUsage))
+        {
+            boardData = new CellData[ROWS, COLS];
+            for (int r = 0; r < ROWS; r++)
+            {
+                for (int c = 0; c < COLS; c++)
+                {
+                    boardData[r, c] = new CellData(regions[ownerGrid[r, c]].color);
+                }
+            }
+            return true;
+        }
+        return false;
     }
+    private void Shuffle<T>(IList<T> list)
+    {
+        for (int i = 0; i < list.Count; i++)
+        {
+            T temp = list[i];
+            int r = UnityEngine.Random.Range(i, list.Count);
+            list[i] = list[r];
+            list[r] = temp;
+        }
+    }
+
+    private bool SolveColoring(List<Region> regions, int index, Dictionary<CellColor, HashSet<int>> colorUsage)
+    {
+        if (index >= regions.Count) return true;
+
+        Region reg = regions[index];
+        var shuffledColors = ((CellColor[])Enum.GetValues(typeof(CellColor))).ToList();
+        Shuffle(shuffledColors);
+
+        foreach (CellColor c in shuffledColors)
+        {
+            // Do not use the same size twice for the same color
+            if (colorUsage[c].Contains(reg.size)) continue;
+
+            bool neighborConflict = false;
+            foreach (int nId in reg.neighbors)
+            {
+                if (regions.Find(x => x.id == nId).color == c)
+                {
+                    neighborConflict = true;
+                    break;
+                }
+            }
+
+            if (!neighborConflict)
+            {
+                reg.color = c;
+                colorUsage[c].Add(reg.size);
+
+                if (SolveColoring(regions, index + 1, colorUsage)) return true;
+
+                reg.color = (CellColor)(-1);
+                colorUsage[c].Remove(reg.size);
+            }
+        }
+        return false;
+    }
+
 
     private bool SolvePartition(int[,] board, Dictionary<int, int> remainingSizes, int currentGroupId, ref int steps)
     {
@@ -185,7 +239,7 @@ public class BoardManager : MonoBehaviour
 
         // CADA 50 passes comprovem si hem superat el temps límit
         if (steps++ % 50 == 0 && stopwatch.ElapsedMilliseconds > MAX_EXECUTION_TIME_MS) return false;
-        
+
 
         Vector2Int start = FindFirstEmpty(board);
         if (start.x == -1) return true; // Board is full, success!
@@ -229,9 +283,6 @@ public class BoardManager : MonoBehaviour
         return false;
     }
 
-    // =========================================================
-    // GRAPH COLORING LOGIC
-    // =========================================================
     class Region
     {
         public int id;
@@ -240,109 +291,30 @@ public class BoardManager : MonoBehaviour
         public CellColor color = (CellColor)(-1);
     }
 
-    private bool TryColorGraph(int[,] ownerGrid)
-    {
-        Dictionary<int, Region> regions = new Dictionary<int, Region>();
-        for (int r = 0; r < rows; r++)
-        {
-            for (int c = 0; c < cols; c++)
-            {
-                int id = ownerGrid[r, c];
-                if (!regions.ContainsKey(id)) regions[id] = new Region { id = id, size = 0 };
-                regions[id].size++;
-
-                int[] dx = { -1, 1, 0, 0 }, dy = { 0, 0, -1, 1 };
-                for (int i = 0; i < 4; i++)
-                {
-                    int nx = r + dx[i], ny = c + dy[i];
-                    if (nx >= 0 && nx < rows && ny >= 0 && ny < cols)
-                    {
-                        int nid = ownerGrid[nx, ny];
-                        if (nid != 0 && nid != id) regions[id].neighbors.Add(nid);
-                    }
-                }
-            }
-        }
-
-        var regionList = regions.Values.ToList();
-        var colorUsage = new Dictionary<CellColor, HashSet<int>>();
-        foreach (CellColor c in Enum.GetValues(typeof(CellColor))) colorUsage[c] = new HashSet<int>();
-
-        if (SolveColoring(regionList, 0, colorUsage))
-        {
-            boardData = new CellData[rows, cols];
-            for (int r = 0; r < rows; r++)
-            {
-                for (int c = 0; c < cols; c++)
-                {
-                    boardData[r, c] = new CellData(regions[ownerGrid[r, c]].color);
-                }
-            }
-            return true;
-        }
-        return false;
-    }
-
-    private bool SolveColoring(List<Region> regions, int index, Dictionary<CellColor, HashSet<int>> colorUsage)
-    {
-        if (index >= regions.Count) return true;
-
-        Region reg = regions[index];
-        var shuffledColors = ((CellColor[])Enum.GetValues(typeof(CellColor))).ToList();
-        Shuffle(shuffledColors);
-
-        foreach (CellColor c in shuffledColors)
-        {
-            // Do not use the same size twice for the same color
-            if (colorUsage[c].Contains(reg.size)) continue;
-
-            bool neighborConflict = false;
-            foreach (int nId in reg.neighbors)
-            {
-                if (regions.Find(x => x.id == nId).color == c)
-                {
-                    neighborConflict = true;
-                    break;
-                }
-            }
-
-            if (!neighborConflict)
-            {
-                reg.color = c;
-                colorUsage[c].Add(reg.size);
-
-                if (SolveColoring(regions, index + 1, colorUsage)) return true;
-
-                reg.color = (CellColor)(-1);
-                colorUsage[c].Remove(reg.size);
-            }
-        }
-        return false;
-    }
 
     // =========================================================
     // UTILITY METHODS
     // =========================================================
     private Vector2Int FindFirstEmpty(int[,] board)
     {
-        for (int r = 0; r < rows; r++)
-            for (int c = 0; c < cols; c++)
+        for (int r = 0; r < ROWS; r++)
+            for (int c = 0; c < COLS; c++)
                 if (board[r, c] == 0) return new Vector2Int(r, c);
         return new Vector2Int(-1, -1);
     }
 
     private int GetConnectedEmptySpaceSize(int[,] board, Vector2Int start)
     {
-        bool[,] visited = new bool[rows, cols];
+        bool[,] visited = new bool[ROWS, COLS];
         return FloodFillEmpty(board, start, visited);
     }
 
     private bool IsBoardViable(int[,] board, int minSize)
     {
-        bool[,] visited = new bool[rows, cols];
-        for (int r = 0; r < rows; r++)
+        bool[,] visited = new bool[ROWS, COLS];
+        for (int r = 0; r < ROWS; r++)
         {
-            for (int c = 0; c < cols; c++)
+            for (int c = 0; c < COLS; c++)
             {
                 if (board[r, c] == 0 && !visited[r, c])
                 {
@@ -369,7 +341,7 @@ public class BoardManager : MonoBehaviour
             for (int i = 0; i < 4; i++)
             {
                 int nx = curr.x + dx[i], ny = curr.y + dy[i];
-                if (nx >= 0 && nx < rows && ny >= 0 && ny < cols && board[nx, ny] == 0 && !visited[nx, ny])
+                if (nx >= 0 && nx < ROWS && ny >= 0 && ny < COLS && board[nx, ny] == 0 && !visited[nx, ny])
                 {
                     visited[nx, ny] = true;
                     q.Enqueue(new Vector2Int(nx, ny));
@@ -391,7 +363,7 @@ public class BoardManager : MonoBehaviour
         for (int i = 0; i < 4; i++)
         {
             int nx = start.x + dx[i], ny = start.y + dy[i];
-            if (nx >= 0 && nx < rows && ny >= 0 && ny < cols && board[nx, ny] == 0)
+            if (nx >= 0 && nx < ROWS && ny >= 0 && ny < COLS && board[nx, ny] == 0)
                 initialAvailable.Add(new Vector2Int(nx, ny));
         }
 
@@ -401,6 +373,7 @@ public class BoardManager : MonoBehaviour
 
     private void ExpandShape(List<Vector2Int> shape, HashSet<Vector2Int> available, int targetSize, int[,] board, HashSet<string> seen, List<List<Vector2Int>> result)
     {
+        // 1. Base case: If shape reaches target size, store it
         if (shape.Count == targetSize)
         {
             var sorted = shape.OrderBy(v => v.x).ThenBy(v => v.y);
@@ -413,55 +386,126 @@ public class BoardManager : MonoBehaviour
             return;
         }
 
-        var availList = new List<Vector2Int>(available);
-        foreach (var nextCell in availList)
-        {
-            shape.Add(nextCell);
-            var nextAvailable = new HashSet<Vector2Int>(available);
-            nextAvailable.Remove(nextCell);
+        // 2. Get current tail to identify growth candidates
+        Vector2Int last = shape.Last();
+        var candidates = available.Where(n => IsAdjacent(n, last)).ToList();
 
+        // 3. Sort candidates using a "Surface Score" (clumping heuristic)
+        // - Higher connectivity is prioritized (score -= connections)
+        // - UnityEngine.Random.value introduces necessary organic "noise"
+        var sortedCandidates = candidates.OrderBy(n => {
+            int connections = 0;
             int[] dx = { -1, 1, 0, 0 }, dy = { 0, 0, -1, 1 };
             for (int i = 0; i < 4; i++)
             {
-                int nx = nextCell.x + dx[i], ny = nextCell.y + dy[i];
-                if (nx >= 0 && nx < rows && ny >= 0 && ny < cols && board[nx, ny] == 0)
+                if (shape.Contains(n + new Vector2Int(dx[i], dy[i]))) connections++;
+            }
+            return (connections * -1.0f) + UnityEngine.Random.value;
+        }).ToList();
+
+        // 4. Backtracking recursion
+        foreach (var nextCell in sortedCandidates)
+        {
+            shape.Add(nextCell);
+            available.Remove(nextCell);
+
+            // Track added neighbors to restore them later
+            List<Vector2Int> newlyAdded = new List<Vector2Int>();
+            int[] dx = { -1, 1, 0, 0 }, dy = { 0, 0, -1, 1 };
+
+            for (int i = 0; i < 4; i++)
+            {
+                Vector2Int neighbor = new Vector2Int(nextCell.x + dx[i], nextCell.y + dy[i]);
+                if (neighbor.x >= 0 && neighbor.x < 15 && neighbor.y >= 0 && neighbor.y < 7
+                    && board[neighbor.x, neighbor.y] == 0 && !shape.Contains(neighbor) && !available.Contains(neighbor))
                 {
-                    Vector2Int n = new Vector2Int(nx, ny);
-                    if (!shape.Contains(n)) nextAvailable.Add(n);
+                    available.Add(neighbor);
+                    newlyAdded.Add(neighbor);
                 }
             }
 
-            ExpandShape(shape, nextAvailable, targetSize, board, seen, result);
-            shape.RemoveAt(shape.Count - 1); // Backtrack
+            ExpandShape(shape, available, targetSize, board, seen, result);
+
+            // 5. Backtrack: Reset state for next iteration
+            shape.RemoveAt(shape.Count - 1);
+            available.Add(nextCell);
+            foreach (var n in newlyAdded) available.Remove(n);
         }
     }
 
-    private void Shuffle<T>(IList<T> list)
+    // Ensure this helper is present for the adjacency logic
+    private bool IsAdjacent(Vector2Int n, Vector2Int last)
     {
-        for (int i = 0; i < list.Count; i++)
+        // For even more organic growth, you can relax this to 
+        // Math.Abs(n.x - last.x) <= 1 && Math.Abs(n.y - last.y) <= 1
+        int dx = Math.Abs(n.x - last.x);
+        int dy = Math.Abs(n.y - last.y);
+        return (dx + dy == 1);
+    }
+
+    // BoardManager.cs
+    public void DistributeStars(Dictionary<CellColor, List<List<Vector2Int>>> colorClusters)
+    {
+        foreach (var colorEntry in colorClusters)
         {
-            T temp = list[i];
-            int r = UnityEngine.Random.Range(i, list.Count);
-            list[i] = list[r];
-            list[r] = temp;
+            var clusters = colorEntry.Value;
+            if (clusters.Count < 2) continue;
+
+            var shuffled = clusters.OrderBy(x => UnityEngine.Random.value).ToList();
+
+            for (int i = 0; i < 2; i++)
+            {
+                var targetCluster = shuffled[i];
+                Vector2Int randomCellPos = targetCluster[UnityEngine.Random.Range(0, targetCluster.Count)];
+
+                // Just mutate the data, no logs here
+                boardData[randomCellPos.x, randomCellPos.y].HasStar = true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Scans the final boardData and returns a dictionary where each color 
+    /// maps to a list of clusters (each cluster is a List of coordinates).
+    /// </summary>
+    public Dictionary<CellColor, List<List<Vector2Int>>> GetColorClusters()
+    {
+        var colorClusters = new Dictionary<CellColor, List<List<Vector2Int>>>();
+        foreach (CellColor color in Enum.GetValues(typeof(CellColor)))
+            colorClusters[color] = new List<List<Vector2Int>>();
+
+        bool[,] visited = new bool[ROWS, COLS];
+
+        for (int r = 0; r < ROWS; r++)
+        {
+            for (int c = 0; c < COLS; c++)
+            {
+                if (!visited[r, c])
+                {
+                    CellColor color = boardData[r, c].Color;
+                    List<Vector2Int> cluster = new List<Vector2Int>();
+                    FloodFill(r, c, color, visited, cluster);
+                    colorClusters[color].Add(cluster);
+                }
+            }
+        }
+        return colorClusters;
+    }
+
+    private void FloodFill(int r, int c, CellColor color, bool[,] visited, List<Vector2Int> cluster)
+    {
+        if (r < 0 || r >= ROWS || c < 0 || c >= COLS || visited[r, c] || boardData[r, c].Color != color)
+            return;
+
+        visited[r, c] = true;
+        cluster.Add(new Vector2Int(r, c));
+
+        int[] dr = { -1, 1, 0, 0 }, dc = { 0, 0, -1, 1 };
+        for (int i = 0; i < 4; i++)
+        {
+            FloodFill(r + dr[i], c + dc[i], color, visited, cluster);
         }
     }
 
     public CellData[,] GetBoardData() => boardData;
-
-    private void LinkLogicToViews()
-    {
-        int viewIndex = 0;
-        for (int r = 0; r < rows; r++)
-        {
-            for (int c = 0; c < cols; c++)
-            {
-                if (viewIndex < allCellViews.Count && boardData != null && boardData[r, c] != null)
-                {
-                    allCellViews[viewIndex].LinkLogic(boardData[r, c], colorPalette.GetColor(boardData[r, c].Color));
-                    viewIndex++;
-                }
-            }
-        }
-    }
 }

@@ -19,71 +19,47 @@ public class TestingConsole : MonoBehaviour
 
     void Start()
     {
-        // 1. Setup listeners: Every time a slider moves, we update label AND UI logic
-        sliderRows.onValueChanged.AddListener((val) => {
-            UpdateLabel(rowLabel, val);
-            UpdateUI();
-        });
+        //// 1. Setup listeners: Every time a slider moves, we update label AND UI logic
+        //sliderRows.onValueChanged.AddListener((val) => {
+        //    UpdateLabel(rowLabel, val);
+        //    UpdateUI();
+        //});
 
-        sliderCols.onValueChanged.AddListener((val) => {
-            UpdateLabel(colLabel, val);
-            UpdateUI();
-        });
+        //sliderCols.onValueChanged.AddListener((val) => {
+        //    UpdateLabel(colLabel, val);
+        //    UpdateUI();
+        //});
 
-        // 2. Initial state
-        UpdateLabel(rowLabel, sliderRows.value);
-        UpdateLabel(colLabel, sliderCols.value);
+        //// 2. Initial state
+        //UpdateLabel(rowLabel, sliderRows.value);
+        //UpdateLabel(colLabel, sliderCols.value);
         validator = new BoardValidator();
 
-        UpdateUI();
     }
 
-    private void UpdateLabel(TextMeshProUGUI label, float val)
-    {
-        if (label != null) label.text = $"{(int)val}";
-    }
+    //private void UpdateLabel(TextMeshProUGUI label, float val)
+    //{
+    //    if (label != null) label.text = $"{(int)val}";
+    //}
 
-    private void UpdateUI()
-    {
-        // Calculate total based on current slider values
-        int rows = (int)sliderRows.value;
-        int cols = (int)sliderCols.value;
-        int total = rows * cols;
+    //Called by the button
+    // TestingConsole.cs
+    // TestingConsole.cs
 
-        // Define viability rules
-        bool isViable = (total % 5 == 0 && total >= 30);
-
-        // Update Cell Count display
-        cellCountText.text = $"{total} Cells";
-        cellCountText.color = isViable ? Color.green : Color.red;
-
-        // Enable or disable generate button
-        if (generateButton != null)
-        {
-            generateButton.interactable = isViable;
-        }
-    }
-
-    public void RunValidation()
+    // TestingConsole.cs
+    public void GenerateAndValidate()
     {
         consoleText.text = "";
-        // Measuring time for performance logging
-        System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
-        sw.Start();
 
-        int rows = (int)sliderRows.value;
-        int cols = (int)sliderCols.value;
+        boardManager.GenerateBoard();
 
-        boardManager.GenerateAndLinkBoard(rows, cols);
-        bool isValid = validator.ValidateBoard(boardManager.GetBoardData(), out string report);
+        // Obtenim els clusters un cop generat el tauler
+        var clusters = boardManager.GetColorClusters();
 
-        sw.Stop();
-        report += $"Generated {rows}x{cols} in {sw.ElapsedMilliseconds/1000}s";
+        // Generem l'informe únic
+        bool isValid = validator.ValidateBoard(boardManager.GetBoardData(), clusters, out string report);
 
-        string header = isValid ? "<color=green>VALID BOARD</color>\n\n" : "<color=red>INVALID BOARD</color>\n\n";
-        consoleText.text += header + report;
-
-        Debug.Log("Validation completed.\n" + report);
-
+        string header = isValid ? "<color=green>VALID BOARD</color>" : "<color=red>INVALID BOARD</color>";
+        consoleText.text = $"{header}\n{report}";
     }
 }
