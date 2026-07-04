@@ -16,16 +16,21 @@ public class BoardManager : MonoBehaviour
     public GameObject framePrefab;
 
     // Locked to 15x7
-    private const int ROWS = 15;
-    private const int COLS = 7;
-    private const int MIDDLE_ROW = (ROWS - 1) / 2;
-    private CellData[,] boardData;
+    public const int ROWS = 15;
+    public const int COLS = 7;
+    public const int MIDDLE_ROW = (ROWS - 1) / 2;
+    public CellData[,] boardData { get; private set; }
     private List<CellView> allCellViews = new List<CellView>();
 
     private Stopwatch stopwatch = new Stopwatch();
     private const long MAX_EXECUTION_TIME_MS = 500;
     private const int MAX_RETRIES = 100;
 
+    // Add this property to your BoardManager class
+    public CellData[,] BoardData
+    {
+        get { return boardData; }
+    }
     public void GenerateBoard()
     {
         ClearBoard();
@@ -167,8 +172,15 @@ public class BoardManager : MonoBehaviour
 
         var regionList = regions.Values.ToList();
         var colorUsage = new Dictionary<CellColor, HashSet<int>>();
-        foreach (CellColor c in Enum.GetValues(typeof(CellColor))) colorUsage[c] = new HashSet<int>();
+        // Convertim l'Enum a un array de CellColor
+        CellColor[] allColors = (CellColor[])Enum.GetValues(typeof(CellColor));
 
+        // Recorrem l'array fins a l'últim element (Length - 1)
+        for (int i = 0; i < allColors.Length - 1; i++)
+        {
+            CellColor c = allColors[i];
+            colorUsage[c] = new HashSet<int>();
+        }
         if (SolveColoring(regionList, 0, colorUsage))
         {
             boardData = new CellData[ROWS, COLS];
@@ -176,7 +188,7 @@ public class BoardManager : MonoBehaviour
             {
                 for (int c = 0; c < COLS; c++)
                 {
-                    boardData[r, c] = new CellData(regions[ownerGrid[r, c]].color);
+                    boardData[r, c] = new CellData(regions[ownerGrid[r, c]].color,r, c);
                 }
             }
             return true;
@@ -198,9 +210,16 @@ public class BoardManager : MonoBehaviour
     {
         if (index >= regions.Count) return true;
 
+
         Region reg = regions[index];
-        var shuffledColors = ((CellColor[])Enum.GetValues(typeof(CellColor))).ToList();
+
+        // Filtrem el Black aquí mateix
+        var allColors = (CellColor[])Enum.GetValues(typeof(CellColor));
+        var shuffledColors = allColors.Where(c => c != CellColor.Black).ToList();
+
         Shuffle(shuffledColors);
+
+
 
         foreach (CellColor c in shuffledColors)
         {

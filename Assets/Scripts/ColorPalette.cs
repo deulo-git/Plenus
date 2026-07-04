@@ -8,6 +8,7 @@ public class ColorPalette : ScriptableObject
     public Color green = Color.green;
     public Color yellow = Color.yellow;
     public Color orange = Color.magenta;
+    public Color black = Color.black;
 
     public Color GetColor(CellColor cellColor)
     {
@@ -17,7 +18,7 @@ public class ColorPalette : ScriptableObject
             case CellColor.Blue: return blue;
             case CellColor.Green: return green;
             case CellColor.Yellow: return yellow;
-            case CellColor.Orange: return orange;
+            case CellColor.Orange: return orange;            
             default: return Color.white;
         }
     }

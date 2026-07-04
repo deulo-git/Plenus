@@ -13,11 +13,11 @@ public class BoardValidator
         StringBuilder sb = new StringBuilder();
         bool isValid = true;
 
-        // Header
-        // (Pots posar el flag de Valid/Invalid aquí)
-
         foreach (CellColor color in Enum.GetValues(typeof(CellColor)))
         {
+            // Skip the Wildcard/Black color as it is not a color present in the cluster data
+            if (color == CellColor.Black) continue;
+
             var colorClusters = clusters[color];
             string colorName = Enum.GetName(typeof(CellColor), color);
             sb.AppendLine($"--- {colorName.ToUpper()} ---");
@@ -39,8 +39,6 @@ public class BoardValidator
                 // Check for stars in these groups
                 if (count > 0)
                 {
-                    // We check the first group found of this size for simplicity, 
-                    // or iterate all if you have multiple stars logic
                     bool hasStar = groupsOfSize[0].Any(pos => board[pos.x, pos.y].HasStar);
                     if (hasStar) sb.Append(" {Star added}");
                 }
@@ -52,7 +50,6 @@ public class BoardValidator
         report = sb.ToString();
         return isValid;
     }
-
 
     public string GenerateStarReport(CellData[,] board, Dictionary<CellColor, List<List<Vector2Int>>> clusters)
     {

@@ -16,42 +16,21 @@ public class TestingConsole : MonoBehaviour
     [Header("Dependencies")]
     [SerializeField] private BoardManager boardManager;
     private BoardValidator validator;
+    private SelectionManager selectionManager;
 
     void Start()
     {
-        //// 1. Setup listeners: Every time a slider moves, we update label AND UI logic
-        //sliderRows.onValueChanged.AddListener((val) => {
-        //    UpdateLabel(rowLabel, val);
-        //    UpdateUI();
-        //});
-
-        //sliderCols.onValueChanged.AddListener((val) => {
-        //    UpdateLabel(colLabel, val);
-        //    UpdateUI();
-        //});
-
-        //// 2. Initial state
-        //UpdateLabel(rowLabel, sliderRows.value);
-        //UpdateLabel(colLabel, sliderCols.value);
         validator = new BoardValidator();
-
+        selectionManager = SelectionManager.Instance;
     }
 
-    //private void UpdateLabel(TextMeshProUGUI label, float val)
-    //{
-    //    if (label != null) label.text = $"{(int)val}";
-    //}
-
-    //Called by the button
-    // TestingConsole.cs
-    // TestingConsole.cs
-
-    // TestingConsole.cs
+    //Called by the Generate & Validate button
     public void GenerateAndValidate()
     {
         consoleText.text = "";
 
         boardManager.GenerateBoard();
+        selectionManager.ResetDiceSelection(); // Reset selection state when generating a new board
 
         // Obtenim els clusters un cop generat el tauler
         var clusters = boardManager.GetColorClusters();
