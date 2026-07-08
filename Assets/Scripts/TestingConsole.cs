@@ -25,20 +25,20 @@ public class TestingConsole : MonoBehaviour
     }
 
     //Called by the Generate & Validate button
-    public void GenerateAndValidate()
-    {
-        consoleText.text = "";
+    //public void GenerateAndValidate()
+    //{
+    //    consoleText.text = "";
 
-        boardManager.GenerateBoard();
-        selectionManager.ResetDiceSelection(); // Reset selection state when generating a new board
+    //    boardManager.GenerateBoard();
+    //    selectionManager.ResetDiceSelection(); // Reset selection state when generating a new board
 
-        // Obtenim els clusters un cop generat el tauler
-        var clusters = boardManager.GetColorClusters();
+    //    // Obtenim els clusters un cop generat el tauler
+    //    var clusters = boardManager.GetColorClusters();
 
-        // Generem l'informe únic
-        bool isValid = validator.ValidateBoard(boardManager.GetBoardData(), clusters, out string report);
+    //    // Generem l'informe únic
+    //    bool isValid = validator.ValidateBoard(boardManager.GetBoardData(), clusters, out string report);
 
-        string header = isValid ? "<color=green>VALID BOARD</color>" : "<color=red>INVALID BOARD</color>";
-        consoleText.text = $"{header}\n{report}";
-    }
+    //    string header = isValid ? "<color=green>VALID BOARD</color>" : "<color=red>INVALID BOARD</color>";
+    //    consoleText.text = $"{header}\n{report}";
+    //}
 }

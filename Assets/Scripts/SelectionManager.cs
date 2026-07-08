@@ -1,28 +1,34 @@
-﻿using System.Collections.Generic;
+﻿using Assets.Scripts;
+using System.Collections.Generic;
 using System.Text;
-using TMPro;
+using Unity.Multiplayer.PlayMode;
 using UnityEngine;
-using static UnityEngine.Rendering.DebugUI.Table;
 
 public class SelectionManager : MonoBehaviour
 {
+    public BoardManager currentBoard; 
     public static SelectionManager Instance;
 
-    [Header("UI Debug References")]
-    public TextMeshProUGUI debugConsole; // Link your TextMeshPro element here
+    [Header("Debug")]
+    [SerializeField] private SelectionDebugUI debugUI;
 
     [Header("Dice State (Simulation)")]
-    public int activeNumber;
-    public CellColor activeColor;
+    [System.NonSerialized]
+    public int? activeNumber;
+    [System.NonSerialized]
+    public CellColor? activeColor;
     private bool areDiceSelected = false;
+    public bool HasCellsSelected => currentCellsSelection.Count > 0;
+    public int? ActiveNumber => activeNumber;
+    public CellColor? ActiveColor => activeColor;
 
-    private List<CellView> currentSelection = new List<CellView>();
+    public List<CellView> currentCellsSelection = new List<CellView>();
     private string lastSystemMessage = "Waiting for player to start selecting...";
     private bool isNumberWildcard = false;
     private bool isColorWildcard = false;
-
-    [SerializeField] private BoardManager boardManager;
-
+    private int? pendingNumber;
+    private CellColor? pendingColor;
+    
     private void Awake()
     {
         Instance = this;
@@ -30,7 +36,13 @@ public class SelectionManager : MonoBehaviour
 
     private void Start()
     {
-        UpdateDebugConsole();
+        RefreshDebug();
+    }
+
+    // Quan el jugador canvia, el GameManager cridarà a això
+    public void SetActiveBoard(BoardManager board)
+    {
+        currentBoard = board;
     }
 
     // Afegeix aquest mètode nou per resetejar quan es tiren els daus:
@@ -39,7 +51,7 @@ public class SelectionManager : MonoBehaviour
         areDiceSelected = false;
         CancelSelection(); // Neteja les caselles a mig seleccionar si n'hi havia
         lastSystemMessage = "Roll the dice and select ONE number and ONE color.";
-        UpdateDebugConsole();
+        RefreshDebug();
     }
 
     // Call this from DiceManager later when dice are rolled and selected
@@ -49,21 +61,60 @@ public class SelectionManager : MonoBehaviour
         activeColor = color;
         this.isNumberWildcard = isNumberWildcard;
         this.isColorWildcard = isColorWildcard;
-        Debug.Log("Al tanto, tenim wildcard" + isNumberWildcard + " , i color " + isColorWildcard);
         areDiceSelected = true; // Ara ja podem clicar caselles!
         lastSystemMessage = $"Dice selected: {number} & {color}. Start picking cells.";
-        UpdateDebugConsole();
+        RefreshDebug();
     }
-
-
 
     public void AttemptSelectCell(CellView clickedCell)
     {
         CellData data = clickedCell.LogicData;
+        BoardManager currentBoard = clickedCell.ParentBoardManager;
+
+        if (!GameManager.Instance.IsCellClickValid(currentBoard))
+        {
+            return;
+        }
 
         // 0. Basic state checks
         if (!areDiceSelected) return;
         if (data.IsMarked) return;
+        if (currentBoard == null) return;
+
+        // --- 1. DESELECTION LOGIC ---
+        if (currentCellsSelection.Contains(clickedCell))
+        {
+            // Remove the cell from our selection list
+            currentCellsSelection.Remove(clickedCell);
+
+            // Turn off the visual selection highlight
+            clickedCell.SetSelectedVisual(false);
+
+            // ⚠️ IMPORTANT: DO NOT call ResetDiceSelection() here!
+            // If the player unpicks the last cell, we just wait for them to pick another one.
+            // The chosen dice must remain active.
+
+            if (currentCellsSelection.Count == 0)
+            {
+                lastSystemMessage = $"Dice selected: {activeNumber} & {activeColor}. Start picking cells.";
+            }
+            else
+            {
+                lastSystemMessage = $"Selected {currentCellsSelection.Count} cells. Waiting to confirm or pick more...";
+            }
+
+            RefreshDebug();
+            return; // We stop here because it was a deselection
+        }
+
+        // --- 2. SELECTION LOGIC ---
+        // Ensure dice are actually selected before picking a new cell
+        if (!activeNumber.HasValue || !activeColor.HasValue)
+        {
+            lastSystemMessage = "Warning: Select numeric and color dice first!";
+            RefreshDebug();
+            return;
+        }
 
         // --- DYNAMIC COLOR LOCKING ---
         bool isColorMatch = false;
@@ -76,7 +127,7 @@ public class SelectionManager : MonoBehaviour
         else
         {
             // Wildcard color dice (Black):
-            if (currentSelection.Count == 0)
+            if (currentCellsSelection.Count == 0)
             {
                 // First cell clicked can be ANY color
                 isColorMatch = true;
@@ -84,91 +135,95 @@ public class SelectionManager : MonoBehaviour
             else
             {
                 // Subsequent cells MUST match the color of the very first cell selected
-                isColorMatch = (data.Color == currentSelection[0].LogicData.Color);
+                isColorMatch = (data.Color == currentCellsSelection[0].LogicData.Color);
             }
         }
-        // -----------------------------
+
         if (!isColorMatch)
         {
             lastSystemMessage = "<color=red>Invalid color!</color>";
-            UpdateDebugConsole();
+            DebugBoardStatus(currentBoard);
+            RefreshDebug();
             return;
         }
 
-        // 1. Toggle logic (if already selected, remove it)
-        if (currentSelection.Contains(clickedCell))
+        // 3. Logic for the FIRST cell of the turn (The Anchor)
+        if (currentCellsSelection.Count == 0)
         {
-            currentSelection.Remove(clickedCell);
-            clickedCell.SetSelectedVisual(false);
-            return;
-        }
-
-        // 2. Logic for the FIRST cell of the turn (The Anchor)
-        if (currentSelection.Count == 0)
-        {
-            if (!IsValidAnchor(data))
+            if (!IsValidAnchor(data, currentBoard))
             {
                 lastSystemMessage = "<color=red>Invalid start: Must be middle row or adjacent to marked cells!</color>";
-                UpdateDebugConsole();
+                DebugBoardStatus(currentBoard);
+                RefreshDebug();
                 return;
             }
         }
-        // 3. Logic for SUBSEQUENT cells (The Chain)
+        // 4. Logic for SUBSEQUENT cells (The Chain)
         else
         {
             if (!IsAdjacentToCurrentSelection(data))
             {
                 lastSystemMessage = "<color=red>Invalid path: Must be adjacent to your current selection!</color>";
-                UpdateDebugConsole();
+                DebugBoardStatus(currentBoard);
+                RefreshDebug();
                 return;
             }
         }
 
-        // 4. Limit check
-        if (currentSelection.Count >= activeNumber) return;
+        // 5. Limit check
+        if (currentCellsSelection.Count >= activeNumber) return;
 
         // Everything is valid!
-        currentSelection.Add(clickedCell);
+        currentCellsSelection.Add(clickedCell);
         clickedCell.SetSelectedVisual(true);
+        RefreshDebug();
     }
 
     // Helper: Checks if the first click is valid
-    private bool IsValidAnchor(CellData data)
+    private bool IsValidAnchor(CellData data, BoardManager currentBoard)
     {
-        bool isFirstTurn = !HasAnyMarkedCells();
+        if (currentBoard == null) return false;
+
+        bool isFirstTurn = !HasAnyMarkedCells(currentBoard);
 
         if (isFirstTurn)
         {
-            // Rule: Must be middle row
-            return data.Row == BoardManager.MIDDLE_ROW;
+            bool isMiddleRow = (data.Row == BoardGenerator.MIDDLE_ROW);
+            return isMiddleRow;
         }
         else
         {
-            // Rule: Must be adjacent to existing marked cells
-            return IsAdjacentToMarked(data);
+            bool isAdjacent = IsAdjacentToMarked(data, currentBoard);
+            return isAdjacent;
         }
     }
 
     // Helper: Checks if a new cell is adjacent to the chain being built
     private bool IsAdjacentToCurrentSelection(CellData data)
     {
-        foreach (var selectedView in currentSelection)
+        foreach (var selectedView in currentCellsSelection)
         {
             if (AreAdjacent(data, selectedView.LogicData)) return true;
         }
         return false;
     }
- 
-    private bool HasAnyMarkedCells()
+
+    private bool HasAnyMarkedCells(BoardManager board)
     {
-        // Accedim a boardManager.BoardData
-        for (int r = 0; r < BoardManager.ROWS; r++)
-            for (int c = 0; c < BoardManager.COLS; c++)
-                if (boardManager.BoardData[r, c].IsMarked) return true;
+        // Seguretat: Si el board és nul, no hi ha cel·les marcades
+        if (board == null || board.BoardData == null) return false;
+
+        // Iterem EXCLUSIVAMENT sobre el BoardData d'aquest board concret
+        // (Això evita que s'equivoqui amb el tauler de l'altre jugador)
+        foreach (var cell in board.BoardData)
+        {
+            if (cell.IsMarked) return true;
+        }
+
         return false;
     }
 
-    private bool IsAdjacentToMarked(CellData data)
+    private bool IsAdjacentToMarked(CellData data, BoardManager currentBoard)
     {
         int[] dr = { -1, 1, 0, 0 };
         int[] dc = { 0, 0, -1, 1 };
@@ -178,12 +233,30 @@ public class SelectionManager : MonoBehaviour
             int nr = data.Row + dr[i];
             int nc = data.Col + dc[i];
 
-            if (nr >= 0 && nr < BoardManager.ROWS && nc >= 0 && nc < BoardManager.COLS)
+            if (nr >= 0 && nr < BoardGenerator.ROWS && nc >= 0 && nc < BoardGenerator.COLS)
             {
-                if (boardManager.BoardData[nr, nc].IsMarked) return true;
+                bool isMarked = currentBoard.BoardData[nr, nc].IsMarked;
+                if (isMarked)
+                {
+                    return true;
+                }
             }
         }
+
+        // Si arribem aquí, no hem trobat res. Loguejem les coordenades per comparar
         return false;
+    }
+
+    public void DebugBoardStatus(BoardManager board)
+    {
+        int markedCount = 0;
+        for (int r = 0; r < BoardGenerator.ROWS; r++)
+        {
+            for (int c = 0; c < BoardGenerator.COLS; c++)
+            {
+                if (board.BoardData[r, c].IsMarked) markedCount++;
+            }
+        }
     }
 
     public void ConfirmSelection()
@@ -191,28 +264,63 @@ public class SelectionManager : MonoBehaviour
         bool isValid = false;
 
         // 1. Validem la lògica segons si és comodí o no
-        if (isNumberWildcard)
+        if (isNumberWildcard || isColorWildcard)
         {
+            if(GameManager.Instance.CurrentActivePlayer.wildcardsRemaining <= 0)
+            {
+                lastSystemMessage = "<color=red>No wildcards available! Cannot use wildcard selection.</color>";
+                RefreshDebug();
+                return;
+            }
+
             // Si és comodí (el 6), permetem seleccionar entre 1 i 6 caselles (ajusta el límit si cal)
-            isValid = (currentSelection.Count > 0 && currentSelection.Count < 6);
+            isValid = (currentCellsSelection.Count > 0 && currentCellsSelection.Count < 6);
         }
         else
         {
             // Si no és comodí, ha de ser exactament el número del dau
-            isValid = (currentSelection.Count == activeNumber);
+            isValid = (currentCellsSelection.Count == activeNumber);
         }
 
         // 2. Executem l'acció segons el resultat
         if (isValid)
         {
-            foreach (var cell in currentSelection)
+            foreach (var cell in currentCellsSelection)
             {
                 cell.LogicData.IsMarked = true;
                 cell.UpdateMarkedVisual();
                 cell.SetSelectedVisual(false);
             }
-            currentSelection.Clear();
-            lastSystemMessage = "<color=yellow>Selection Confirmed! Turn ended.</color>";
+            
+            // 2. GESTIÓ DE COMODINS (WILDCARDS)
+            int wildcardsToConsume = 0;
+
+            // Si estem utilitzant el dau de 6, gastem 1 comodí
+            if (isNumberWildcard) wildcardsToConsume++;
+
+            // Si estem utilitzant el color negre, gastem 1 comodí
+            if (isColorWildcard) wildcardsToConsume++;
+
+            if (wildcardsToConsume > 0)
+            {
+                // Cridem al mètode que ja tens al GameManager per restar-los
+                GameManager.Instance.ConsumeWildcards(wildcardsToConsume);
+            }
+
+            GameManager.Instance.ManageMarkedStars(currentCellsSelection, GameManager.Instance.CurrentActivePlayer);
+            
+            ScoreManager.Instance.ProcessTurnScoring(GameManager.Instance.CurrentActivePlayer, currentBoard);
+
+
+
+
+            RefreshDebug();
+            ResetDiceSelectionState();
+
+            currentCellsSelection.Clear();
+            lastSystemMessage = "<color=green>Selection Confirmed! Turn ended.</color>";
+            GameManager.Instance.EndTurn();
+
         }
         else
         {
@@ -226,19 +334,20 @@ public class SelectionManager : MonoBehaviour
                 lastSystemMessage = $"<color=orange>Warning: You must select EXACTLY {activeNumber} cells.</color>";
             }
         }
-
-        UpdateDebugConsole();
+        
+        
     }
+
+
 
     public void CancelSelection()
     {
-        foreach (var cell in currentSelection)
+        foreach (var cell in currentCellsSelection)
         {
             cell.SetSelectedVisual(false);
         }
-        currentSelection.Clear();
-        lastSystemMessage = "Selection canceled. Try again.";
-        UpdateDebugConsole();
+        currentCellsSelection.Clear();
+        RefreshDebug();
     }
 
     // Mathematical adjacency check (Orthogonal only)
@@ -247,25 +356,57 @@ public class SelectionManager : MonoBehaviour
         return Mathf.Abs(a.Row - b.Row) + Mathf.Abs(a.Col - b.Col) == 1;
     }
 
-    // Constructs the UI text panel
-    private void UpdateDebugConsole()
+    private void RefreshDebug()
     {
-        if (debugConsole == null) return;
-
-        StringBuilder sb = new StringBuilder();
-
-        sb.AppendLine("--- <b>SELECTION DEBUG PANEL</b> ---");
-        sb.AppendLine($"<b>Active Dice:</b> {activeNumber} | {activeColor}");
-
-        sb.AppendLine("\n--- <b>CURRENT STATUS</b> ---");
-
-        // Paint the text green if we have the exact amount of cells ready to confirm
-        string countColor = (currentSelection.Count == activeNumber) ? "green" : "white";
-        sb.AppendLine($"<b>Cells Picked:</b> <color={countColor}>{currentSelection.Count} / {activeNumber}</color>");
-
-        sb.AppendLine("\n--- <b>SYSTEM MESSAGE</b> ---");
-        sb.AppendLine(lastSystemMessage);
-
-        debugConsole.text = sb.ToString();
+        debugUI.Refresh(
+            activeNumber,
+            activeColor,
+            currentCellsSelection.Count,
+            lastSystemMessage
+        );
     }
+
+    public void SetPendingNumber(int number)
+    {
+        pendingNumber = number;
+        TryActivateDice();
+    }
+
+    public void SetPendingColor(CellColor color)
+    {
+        pendingColor = color;
+        TryActivateDice();
+    }
+
+    private void TryActivateDice()
+    {
+        if (!pendingNumber.HasValue || !pendingColor.HasValue)
+            return;
+
+        SetActiveDice(
+            pendingNumber.Value,
+            pendingColor.Value,
+            pendingNumber.Value == 6,
+            pendingColor.Value == CellColor.Black
+        );
+
+        //pendingNumber = null;
+        //pendingColor = null;
+    }
+
+    // Clears the active and pending dice data for the current selection session
+    public void ResetDiceSelectionState()
+    {
+        pendingNumber = null;
+        pendingColor = null;
+        activeNumber = null;
+        activeColor = null;
+        areDiceSelected = false;
+
+        // Optional: clear any visual cell pre-selections just in case
+        currentCellsSelection.Clear();
+
+        RefreshDebug();
+    }
+
 }

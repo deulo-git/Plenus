@@ -1,4 +1,4 @@
-public enum CellColor { Blue, Red, Green, Yellow, Orange, Black}
+public enum CellColor {Blue, Red, Green, Yellow, Orange, Black}
 
 public class CellData
 {
