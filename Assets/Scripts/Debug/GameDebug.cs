@@ -1,8 +1,7 @@
-﻿using System;
+using System;
 using System.Text;
 using TMPro;
 using UnityEngine;
-using UnityEngine.SocialPlatforms.Impl;
 using UnityEngine.UI;
 
 public class GameDebugUI : MonoBehaviour
@@ -69,11 +68,16 @@ public class GameDebugUI : MonoBehaviour
         sb.AppendLine("<b>Action:</b>");
         sb.AppendLine(action);
 
-        gameStatusText.text = sb.ToString();
+        // Guard every serialized reference: a missing Inspector assignment must not
+        // throw a NullReferenceException in the middle of the network start-up chain.
+        if (gameStatusText != null)
+            gameStatusText.text = sb.ToString();
 
-        p1Panel.color = activePlayer == 1 ? currentPanelColor : defaultPanelColor;
-        p2Panel.color = activePlayer == 2 ? currentPanelColor : defaultPanelColor;
+        if (p1Panel != null)
+            p1Panel.color = activePlayer == 1 ? currentPanelColor : defaultPanelColor;
 
+        if (p2Panel != null)
+            p2Panel.color = activePlayer == 2 ? currentPanelColor : defaultPanelColor;
     }
 
 }

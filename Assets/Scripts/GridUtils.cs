@@ -1,8 +1,7 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
-using static UnityEngine.Rendering.DebugUI.Table;
 
 namespace Assets.Scripts
 {
@@ -11,7 +10,7 @@ namespace Assets.Scripts
         // Ensure this helper is present for the adjacency logic
         public bool IsAdjacent(Vector2Int n, Vector2Int last)
         {
-            // For even more organic growth, you can relax this to 
+            // For even more organic growth, you can relax this to
             // Math.Abs(n.x - last.x) <= 1 && Math.Abs(n.y - last.y) <= 1
             int dx = Math.Abs(n.x - last.x);
             int dy = Math.Abs(n.y - last.y);
@@ -73,12 +72,15 @@ namespace Assets.Scripts
             return true;
         }
 
-        public void Shuffle<T>(IList<T> list)
+        // NOTE (online): the shuffle now takes a System.Random so board generation is
+        // fully deterministic for a given seed. Passing the SAME seed on the host and on
+        // every client guarantees they all build the IDENTICAL board.
+        public void Shuffle<T>(IList<T> list, System.Random rng)
         {
             for (int i = 0; i < list.Count; i++)
             {
                 T temp = list[i];
-                int r = UnityEngine.Random.Range(i, list.Count);
+                int r = rng.Next(i, list.Count);
                 list[i] = list[r];
                 list[r] = temp;
             }

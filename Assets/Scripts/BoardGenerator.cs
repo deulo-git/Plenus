@@ -1,6 +1,5 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using UnityEngine;
@@ -12,28 +11,37 @@ namespace Assets.Scripts
         public const int ROWS = 15;
         public const int COLS = 7;
         public const int MIDDLE_ROW = (ROWS - 1) / 2;
-        private const long MAX_EXECUTION_TIME_MS = 500;
         private const int MAX_RETRIES = 100;
+        // Hard cap on backtracking steps per attempt. Using a pure step-count breaker
+        // (instead of a wall-clock timer) keeps generation DETERMINISTIC: a slow machine
+        // and a fast machine take the exact same decisions for the same seed.
+        private const int MAX_STEPS = 200000;
 
         public const int STAR_COLOR = 3; //STARS FOR COLOUR
-        private Stopwatch stopwatch = new Stopwatch();
         private GridUtils gridUtils;
+
+        // The single source of randomness. Seeded => identical board on every machine.
+        private System.Random rng;
 
         private CellData[,] boardData;
 
-        public BoardGenerator()
+        // Deterministic constructor: same seed => same board.
+        public BoardGenerator(int seed)
         {
             gridUtils = new GridUtils();
+            rng = new System.Random(seed);
         }
+
+        // Fallback constructor for any non-networked / single-player usage.
+        public BoardGenerator() : this(Environment.TickCount) { }
 
         private bool TryGenerateOrganicBoard()
         {
             for (int attempt = 0; attempt < MAX_RETRIES; attempt++)
             {
-                stopwatch.Restart();
                 int[,] ownerGrid = new int[ROWS, COLS];
 
-                // Fixed recipe: 6, 5, 4, 3, 2, 1 for each of the 5 colors
+                // Fixed recipe: 5 pieces of each size 1..6 for each of the colors
                 Dictionary<int, int> remainingSizes = new Dictionary<int, int> {
                 {6, 5}, {5, 5}, {4, 5}, {3, 5}, {2, 5}, {1, 5}
             };
@@ -56,7 +64,7 @@ namespace Assets.Scripts
 
             if (isSuccessful)
             {
-                // Note: If your star distribution logic (DistributeStars) 
+                // Note: If your star distribution logic (DistributeStars)
                 // is inside BoardGenerator, call it here before returning.
                 var clusters = GetColorClusters();
                 DistributeStars(clusters);
@@ -71,12 +79,8 @@ namespace Assets.Scripts
 
         private bool SolvePartition(int[,] board, Dictionary<int, int> remainingSizes, int currentGroupId, ref int steps)
         {
-            // --- CIRCUIT BREAKERS ---
-            if (steps++ > 10000) return false; // Iteration limit
-
-            // CADA 50 passes comprovem si hem superat el temps límit
-            if (steps++ % 50 == 0 && stopwatch.ElapsedMilliseconds > MAX_EXECUTION_TIME_MS) return false;
-
+            // --- CIRCUIT BREAKER (deterministic, step-count based) ---
+            if (steps++ > MAX_STEPS) return false;
 
             Vector2Int start = gridUtils.FindFirstEmpty(board);
             if (start.x == -1) return true; // Board is full, success!
@@ -95,7 +99,7 @@ namespace Assets.Scripts
                 if (emptySpaceSize < size) continue;
 
                 List<List<Vector2Int>> shapes = GenerateAllShapes(board, start, size);
-                gridUtils.Shuffle(shapes);
+                gridUtils.Shuffle(shapes, rng);
 
                 foreach (var shape in shapes)
                 {
@@ -146,10 +150,10 @@ namespace Assets.Scripts
 
             var regionList = regions.Values.ToList();
             var colorUsage = new Dictionary<CellColor, HashSet<int>>();
-            // Convertim l'Enum a un array de CellColor
+            // Convert the Enum to an array of CellColor
             CellColor[] allColors = (CellColor[])Enum.GetValues(typeof(CellColor));
 
-            // Recorrem l'array fins a l'últim element (Length - 1)
+            // Walk the array up to the last element (Length - 1) to skip Black
             for (int i = 0; i < allColors.Length - 1; i++)
             {
                 CellColor c = allColors[i];
@@ -178,12 +182,12 @@ namespace Assets.Scripts
 
             Region reg = regions[index];
 
-            // Filtrem el Black aquí mateix
+            // Filter out Black here
             var allColors = (CellColor[])Enum.GetValues(typeof(CellColor));
             var shuffledColors = allColors.Where(c => c != CellColor.Black).ToList();
 
 
-            gridUtils.Shuffle(shuffledColors);
+            gridUtils.Shuffle(shuffledColors, rng);
 
 
 
@@ -257,7 +261,7 @@ namespace Assets.Scripts
 
             // 3. Sort candidates using a "Surface Score" (clumping heuristic)
             // - Higher connectivity is prioritized (score -= connections)
-            // - UnityEngine.Random.value introduces necessary organic "noise"
+            // - rng noise introduces the necessary organic variation (deterministic per seed)
             var sortedCandidates = candidates.OrderBy(n => {
                 int connections = 0;
                 int[] dx = { -1, 1, 0, 0 }, dy = { 0, 0, -1, 1 };
@@ -265,7 +269,7 @@ namespace Assets.Scripts
                 {
                     if (shape.Contains(n + new Vector2Int(dx[i], dy[i]))) connections++;
                 }
-                return (connections * -1.0f) + UnityEngine.Random.value;
+                return (connections * -1.0f) + (float)rng.NextDouble();
             }).ToList();
 
             // 4. Backtracking recursion
@@ -330,12 +334,12 @@ namespace Assets.Scripts
                     if (allStarPositions.Count == 0)
                     {
                         // First star on the whole board can be placed anywhere purely at random
-                        int randomIndex = UnityEngine.Random.Range(0, availableCells.Count);
+                        int randomIndex = rng.Next(0, availableCells.Count);
                         chosenCell = availableCells[randomIndex];
                     }
                     else
                     {
-                        // For subsequent stars, score every available cell based on its distance 
+                        // For subsequent stars, score every available cell based on its distance
                         // to the CLOSEST existing star. We want to MAXIMIZE this distance.
                         var scoredCells = availableCells.Select(cell =>
                         {
@@ -344,12 +348,13 @@ namespace Assets.Scripts
                             return new { Cell = cell, Score = minDistanceToAnyStar };
                         })
                         .OrderByDescending(x => x.Score)
+                        .ThenBy(x => x.Cell.x).ThenBy(x => x.Cell.y) // deterministic tie-break
                         .ToList();
 
-                        // To maintain organic randomness (so games aren't identically predictable),
-                        // we pick randomly from the top 3 furthest candidates.
+                        // To maintain organic variation (so games aren't identically predictable),
+                        // we pick from the top 3 furthest candidates.
                         int candidatesToConsider = Mathf.Min(3, scoredCells.Count);
-                        int chosenIndex = UnityEngine.Random.Range(0, candidatesToConsider);
+                        int chosenIndex = rng.Next(0, candidatesToConsider);
 
                         chosenCell = scoredCells[chosenIndex].Cell;
                     }
@@ -413,4 +418,3 @@ namespace Assets.Scripts
 
     }
 }
-

@@ -1,0 +1,3500 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+// GENERATED from dc-runtime/src/*.ts — do not edit. Rebuild with `cd dc-runtime && bun run build`.
+"use strict";
+(() => {
+  var __defProp = Object.defineProperty;
+  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+
+  // src/react.ts
+  function getReact() {
+    const R = window.React;
+    if (!R) throw new Error("dc-runtime: window.React is not available yet");
+    return R;
+  }
+  function getReactDOM() {
+    const RD = window.ReactDOM;
+    if (!RD) throw new Error("dc-runtime: window.ReactDOM is not available yet");
+    return RD;
+  }
+  var h = ((...args) => getReact().createElement(
+    ...args
+  ));
+
+  // src/parse.ts
+  function parseDcDocument(doc) {
+    const dc = doc.querySelector("x-dc");
+    if (!dc) return null;
+    const scriptEl = doc.querySelector("script[data-dc-script]");
+    const { props, preview } = parseDataProps(
+      scriptEl?.getAttribute("data-props") ?? null
+    );
+    return {
+      template: dc.innerHTML,
+      js: scriptEl ? scriptEl.textContent || "" : "",
+      props,
+      preview
+    };
+  }
+  function parseDcText(src) {
+    const openMatch = /<x-dc(?:\s[^>]*)?>/.exec(src);
+    if (!openMatch) return null;
+    const close = src.lastIndexOf("</x-dc>");
+    if (close === -1 || close < openMatch.index) return null;
+    const template = src.slice(openMatch.index + openMatch[0].length, close);
+    const doc = new DOMParser().parseFromString(src, "text/html");
+    const scriptEl = doc.querySelector("script[data-dc-script]");
+    const { props, preview } = parseDataProps(
+      scriptEl?.getAttribute("data-props") ?? null
+    );
+    return {
+      template,
+      js: scriptEl ? scriptEl.textContent || "" : "",
+      props,
+      preview
+    };
+  }
+  function parseDataProps(raw) {
+    if (!raw) return { props: null, preview: null };
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { props: null, preview: null };
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { props: null, preview: null };
+    }
+    const obj = parsed;
+    const preview = obj.$preview && typeof obj.$preview === "object" ? obj.$preview : null;
+    const rest = {};
+    for (const k of Object.keys(obj)) {
+      if (k[0] !== "$") rest[k] = obj[k];
+    }
+    return { props: Object.keys(rest).length ? rest : null, preview };
+  }
+  function dcNameFromPath(pathname) {
+    let p = pathname || "";
+    try {
+      p = decodeURIComponent(p);
+    } catch {
+    }
+    const base = p.split("/").pop() || "Root";
+    return base.replace(/\.dc\.html$/, "").replace(/\.html?$/, "") || "Root";
+  }
+
+  // src/boot.ts
+  var BASE_CSS = `
+    .sc-placeholder{background:color-mix(in srgb,currentColor 8%,transparent);
+      border:1px solid color-mix(in srgb,currentColor 50%,transparent);
+      border-radius:2px;box-sizing:border-box;overflow:hidden}
+    @keyframes sc-shine{0%{background-position:100% 50%}100%{background-position:0% 50%}}
+    html.sc-dc-streaming .sc-placeholder,
+    html.sc-dc-streaming .sc-interp.sc-missing{position:relative;
+      background:color-mix(in srgb,currentColor 5%,transparent);
+      border-color:transparent}
+    html.sc-dc-streaming .sc-placeholder::before,
+    html.sc-dc-streaming .sc-interp.sc-missing::before{content:'';
+      position:absolute;inset:0;pointer-events:none;
+      background:linear-gradient(90deg,rgba(217,119,87,0) 25%,rgba(247,225,211,.95) 37%,rgba(217,119,87,0) 63%);
+      background-size:400% 100%;animation:sc-shine 1.4s ease infinite}
+    html.sc-dc-streaming .sc-placeholder:nth-child(n+9 of .sc-placeholder)::before,
+    html.sc-dc-streaming .sc-interp.sc-missing:nth-child(n+9 of .sc-interp.sc-missing)::before{animation:none;
+      background:color-mix(in srgb,currentColor 8%,transparent)}
+    .sc-placeholder-error{padding:4px 8px;font:11px/1.4 ui-monospace,monospace;
+      color:color-mix(in srgb,currentColor 70%,transparent);word-break:break-word}
+    .sc-interp.sc-missing{display:inline-block;width:2em;height:1em;overflow:hidden;
+      vertical-align:text-bottom;background:rgba(255,255,255,.3);border:1px solid rgba(0,0,0,.5);
+      border-radius:2px;box-sizing:border-box;color:transparent;
+      user-select:none}
+    .sc-interp.sc-unresolved{font-family:ui-monospace,monospace;font-size:.85em;
+      color:color-mix(in srgb,currentColor 50%,transparent);
+      background:color-mix(in srgb,currentColor 10%,transparent);border-radius:3px;
+      padding:0 3px}
+    .sc-host.sc-has-error{position:relative}
+    .sc-logic-error{position:absolute;top:8px;left:8px;z-index:2147483647;max-width:60ch;
+      padding:6px 10px;background:#b00020;color:#fff;font:12px/1.4 ui-monospace,monospace;
+      border-radius:4px;white-space:pre-wrap;pointer-events:none}
+    /* Mirrors PRINT_BASELINE_CSS in apps/web deck-stage-export.ts \u2014 keep both
+       in sync until dc-runtime regains a build step. */
+    @media print {
+      @page { margin: 0.5cm; }
+      figure, table { break-inside: avoid; }
+      #dc-root, #dc-root > .sc-host { height: auto; }
+      *, *::before, *::after {
+        print-color-adjust: exact; -webkit-print-color-adjust: exact;
+        backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+        animation-delay: -99s !important; animation-duration: .001s !important;
+        animation-iteration-count: 1 !important; animation-fill-mode: both !important;
+        animation-play-state: running !important; transition-duration: 0s !important;
+      }
+    }
+  `;
+  var FULL_PAGE_CSS = "html,body{height:100%;margin:0}#dc-root,#dc-root>.sc-host{height:100%}";
+  function rootNameForDocument(doc, loc) {
+    let bootPath = loc.pathname || "";
+    if (!/\.dc\.html?$/i.test(safeDecode(bootPath))) {
+      try {
+        bootPath = new URL(doc.baseURI || "/").pathname;
+      } catch {
+      }
+    }
+    return dcNameFromPath(bootPath);
+  }
+  function safeDecode(s) {
+    try {
+      return decodeURIComponent(s);
+    } catch {
+      return s;
+    }
+  }
+  function boot(runtime, doc = document) {
+    const parsed = parseDcDocument(doc);
+    if (!parsed) return null;
+    const React = getReact();
+    const rootName = rootNameForDocument(doc, location);
+    runtime.markFetched(rootName);
+    runtime.setRootName(rootName);
+    runtime.adoptParsed(rootName, parsed);
+    if (!window.__resources) {
+      fetch(location.href).then((res) => res.ok ? res.text() : "").then((t) => {
+        const raw = t ? parseDcText(t) : null;
+        if (raw?.template) runtime.updateHtml(rootName, raw.template);
+      }).catch(() => {
+      });
+    }
+    const dc = doc.querySelector("x-dc");
+    const hostEl = doc.createElement("div");
+    hostEl.id = "dc-root";
+    dc.replaceWith(hostEl);
+    if (!parsed.preview) {
+      const s = doc.createElement("style");
+      s.textContent = FULL_PAGE_CSS;
+      doc.head.appendChild(s);
+    }
+    const Root = runtime.getDC(rootName);
+    const entry = runtime.registry.get(rootName);
+    function StandaloneRoot() {
+      const [, setTick] = React.useState(0);
+      React.useEffect(() => {
+        const sub = () => setTick((n) => n + 1);
+        entry.subs.add(sub);
+        return () => {
+          entry.subs.delete(sub);
+        };
+      }, []);
+      const defaults = React.useMemo(() => {
+        const d = {};
+        for (const k in entry.propsMeta || {}) {
+          const v = entry.propsMeta?.[k]?.default;
+          if (v !== void 0) d[k] = v;
+        }
+        return d;
+      }, [entry.propsMeta]);
+      return h(Root, { ...defaults, ...entry.propOverrides || {} });
+    }
+    const ReactDOM = getReactDOM();
+    if (ReactDOM.createRoot)
+      ReactDOM.createRoot(hostEl).render(h(StandaloneRoot));
+    else ReactDOM.render(h(StandaloneRoot), hostEl);
+    return rootName;
+  }
+
+  // src/expr.ts
+  var IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*/;
+  var NUMBER_RE = /^-?\d+(\.\d+)?$/;
+  function resolve(vals, src) {
+    const expr = String(src).trim();
+    if (!expr) return void 0;
+    if (expr[0] === "(" && expr[expr.length - 1] === ")" && parensWrapWhole(expr)) {
+      return resolve(vals, expr.slice(1, -1));
+    }
+    const eq = findTopLevelEquality(expr);
+    if (eq) {
+      const lv = resolve(vals, expr.slice(0, eq.index));
+      const rv = resolve(vals, expr.slice(eq.index + eq.op.length));
+      switch (eq.op) {
+        case "===":
+          return lv === rv;
+        case "!==":
+          return lv !== rv;
+        case "==":
+          return lv == rv;
+        default:
+          return lv != rv;
+      }
+    }
+    if (expr[0] === "!") return !resolve(vals, expr.slice(1));
+    if (expr === "true") return true;
+    if (expr === "false") return false;
+    if (expr === "null") return null;
+    if (expr === "undefined") return void 0;
+    if (NUMBER_RE.test(expr)) return Number(expr);
+    if (expr.length >= 2 && (expr[0] === '"' || expr[0] === "'") && expr[expr.length - 1] === expr[0]) {
+      return expr.slice(1, -1);
+    }
+    return resolvePath(vals, expr);
+  }
+  function parensWrapWhole(expr) {
+    let depth = 0;
+    for (let i = 0; i < expr.length - 1; i++) {
+      if (expr[i] === "(") depth++;
+      else if (expr[i] === ")") {
+        depth--;
+        if (depth === 0) return false;
+      }
+    }
+    return true;
+  }
+  function findTopLevelEquality(expr) {
+    let depth = 0;
+    for (let i = 0; i < expr.length; i++) {
+      const c = expr[i];
+      if (c === "[" || c === "(") depth++;
+      else if (c === "]" || c === ")") depth--;
+      else if (depth === 0 && (c === "=" || c === "!") && expr[i + 1] === "=") {
+        if (i > 0 && (expr[i - 1] === "=" || expr[i - 1] === "!")) continue;
+        if (!expr.slice(0, i).trim()) continue;
+        const op = expr[i + 2] === "=" ? c + "==" : c + "=";
+        return { index: i, op };
+      }
+    }
+    return null;
+  }
+  function resolvePath(vals, expr) {
+    const head = expr.match(IDENT_RE);
+    if (!head) return void 0;
+    let cur = vals == null ? void 0 : vals[head[0]];
+    let i = head[0].length;
+    while (i < expr.length) {
+      if (expr[i] === ".") {
+        const m = expr.slice(i + 1).match(IDENT_RE) || expr.slice(i + 1).match(/^\d+/);
+        if (!m) return void 0;
+        cur = cur == null ? void 0 : cur[m[0]];
+        i += 1 + m[0].length;
+      } else if (expr[i] === "[") {
+        let depth = 1;
+        let j = i + 1;
+        while (j < expr.length && depth > 0) {
+          if (expr[j] === "[") depth++;
+          else if (expr[j] === "]") {
+            depth--;
+            if (depth === 0) break;
+          }
+          j++;
+        }
+        if (depth !== 0) return void 0;
+        const key = resolve(vals, expr.slice(i + 1, j));
+        cur = cur == null ? void 0 : cur[key];
+        i = j + 1;
+      } else {
+        return void 0;
+      }
+    }
+    return cur;
+  }
+
+  // src/encode.ts
+  var CAMEL_ATTR = "sc-camel-";
+  var INLINE_TEXT_TAGS = new Set(
+    "a abbr b bdi bdo br cite code del dfn em i ins kbd mark q s samp small span strike strong sub sup u var wbr".split(
+      " "
+    )
+  );
+  var RAW_WRAP = {
+    select: "sc-raw-select",
+    table: "sc-raw-table",
+    tbody: "sc-raw-tbody",
+    thead: "sc-raw-thead",
+    tfoot: "sc-raw-tfoot",
+    tr: "sc-raw-tr",
+    td: "sc-raw-td",
+    th: "sc-raw-th",
+    caption: "sc-raw-caption"
+  };
+  var RAW_UNWRAP = Object.fromEntries(
+    Object.entries(RAW_WRAP).map(([k, v]) => [v, k])
+  );
+  var EVENT_MAP = {
+    onclick: "onClick",
+    onchange: "onChange",
+    oninput: "onInput",
+    onsubmit: "onSubmit",
+    onkeydown: "onKeyDown",
+    onkeyup: "onKeyUp",
+    onkeypress: "onKeyPress",
+    onmousedown: "onMouseDown",
+    onmouseup: "onMouseUp",
+    onmouseenter: "onMouseEnter",
+    onmouseleave: "onMouseLeave",
+    onfocus: "onFocus",
+    onblur: "onBlur",
+    ondoubleclick: "onDoubleClick",
+    oncontextmenu: "onContextMenu"
+  };
+  var ATTRS = `(?:[^>"']|"[^"]*"|'[^']*')*`;
+  var IMPORT_SELF_CLOSE_RE = new RegExp(
+    "<(x-import|dc-import)(" + ATTRS + ")/>",
+    "gi"
+  );
+  var CAMEL_ATTR_RE = /(\s)([a-z]+[A-Z][A-Za-z0-9]*)(\s*=)/g;
+  function encodeCase(html) {
+    html = html.replace(
+      IMPORT_SELF_CLOSE_RE,
+      (_, t, a) => "<" + t + a + "></" + t + ">"
+    );
+    html = html.replace(/<helmet(\s|>)/gi, "<sc-helmet$1");
+    html = html.replace(/<\/helmet\s*>/gi, "</sc-helmet>");
+    html = html.replace(
+      CAMEL_ATTR_RE,
+      (_, sp, name, eq) => sp + CAMEL_ATTR + name.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase()) + eq
+    );
+    for (const [real, alias] of Object.entries(RAW_WRAP)) {
+      html = html.replace(
+        new RegExp("(</?)" + real + "(?=[\\s>])", "gi"),
+        "$1" + alias
+      );
+    }
+    return html;
+  }
+  function kebabToCamel(s) {
+    return s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  }
+  function cssToObj(css) {
+    const o = {};
+    for (const decl of css.split(";")) {
+      const i = decl.indexOf(":");
+      if (i < 0) continue;
+      const prop = decl.slice(0, i).trim();
+      o[prop.startsWith("--") ? prop : kebabToCamel(prop)] = decl.slice(i + 1).trim();
+    }
+    return o;
+  }
+  function compileAttr(raw) {
+    const whole = raw.match(/^\s*\{\{([\s\S]+?)\}\}\s*$/);
+    if (whole) {
+      const path = whole[1];
+      return (vals) => resolve(vals, path);
+    }
+    if (raw.includes("{{")) {
+      const parts = raw.split(/\{\{([\s\S]+?)\}\}/g);
+      return (vals) => parts.map((s, i) => i & 1 ? resolve(vals, s) ?? "" : s).join("");
+    }
+    return () => raw;
+  }
+
+  // src/compile.ts
+  function collectProps(node, kind, host) {
+    const propGetters = [];
+    const pseudoClasses = [];
+    let hintSize = null;
+    for (const { name, value } of [...node.attributes]) {
+      if (name === "sc-name" || name === "data-dc-tpl") continue;
+      let key = name;
+      if (key.startsWith(CAMEL_ATTR))
+        key = kebabToCamel(key.slice(CAMEL_ATTR.length));
+      if (key === "hint-size") {
+        hintSize = value;
+        continue;
+      }
+      if (key.startsWith("style-")) {
+        pseudoClasses.push(host.pseudoClass(key.slice(6), value));
+        continue;
+      }
+      if (kind !== "dom") {
+        if (key.includes("-") && !(kind === "x-import" && (key.startsWith("aria-") || key.startsWith("data-"))))
+          key = kebabToCamel(key);
+      } else {
+        if (key === "class") key = "className";
+        else if (key === "for") key = "htmlFor";
+        else if (key.startsWith("on"))
+          key = EVENT_MAP[key] || "on" + key[2].toUpperCase() + key.slice(3);
+      }
+      propGetters.push([key, compileAttr(value)]);
+    }
+    return { propGetters, pseudoClasses, hintSize };
+  }
+  var HOST_STYLE_PROPS = /* @__PURE__ */ new Set([
+    "position",
+    "left",
+    "right",
+    "top",
+    "bottom",
+    "inset",
+    "width",
+    "height",
+    "z-index",
+    "transform"
+  ]);
+  function hostPositionStyle(style) {
+    const all = typeof style === "string" ? cssToObj(style) : style != null && typeof style === "object" ? style : null;
+    if (!all) return void 0;
+    const out = {};
+    for (const [k, v] of Object.entries(all)) {
+      const kebab = k.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
+      if (HOST_STYLE_PROPS.has(kebab)) out[k] = v;
+    }
+    return Object.keys(out).length ? out : void 0;
+  }
+  function compileTemplate(html, host) {
+    const tpl = document.createElement("template");
+    //! nosemgrep: direct-inner-html-assignment
+    tpl.innerHTML = encodeCase(html);
+    let tplN = 0;
+    (function stamp(node) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        node.setAttribute("data-dc-tpl", String(tplN++));
+      }
+      for (const c of node.childNodes) stamp(c);
+    })(tpl.content);
+    const builders = walkChildren(tpl.content, host);
+    const render = ((vals, ctx) => builders.map((b, i) => b(vals || {}, ctx, i)));
+    render.__annotated = tpl.innerHTML;
+    return render;
+  }
+  function walkChildren(node, host) {
+    return [...node.childNodes].map((c) => walk(c, host)).filter((b) => b != null);
+  }
+  function walk(node, host) {
+    if (node.nodeType === Node.TEXT_NODE) return walkText(node);
+    if (node.nodeType !== Node.ELEMENT_NODE) return null;
+    const el = node;
+    const tag = el.tagName.toLowerCase();
+    if (tag === "sc-for") return walkFor(el, host);
+    if (tag === "sc-if") return walkIf(el, host);
+    if (tag === "x-import") return walkXImport(el, host);
+    if (tag === "sc-helmet") return host.helmet(el);
+    if (tag === "dc-import") return walkComponent(el, host);
+    return walkElement(el, host);
+  }
+  var warnedHoles = /* @__PURE__ */ new Set();
+  function warnUnresolved(ctx, what) {
+    const key = (ctx?.__name || "?") + "\0" + what;
+    if (warnedHoles.has(key)) return;
+    warnedHoles.add(key);
+    console.warn("[dc-runtime] " + (ctx?.__name || "template") + ": " + what);
+  }
+  function walkText(node) {
+    const txt = node.nodeValue ?? "";
+    if (!txt.includes("{{")) {
+      if (!txt.trim() && !txt.includes(" ")) return null;
+      return () => txt;
+    }
+    const parts = txt.split(/\{\{([\s\S]+?)\}\}/g);
+    return (vals, ctx, key) => h(
+      getReact().Fragment,
+      { key },
+      ...parts.map((p, i) => {
+        if (!(i & 1)) return p;
+        const v = resolve(vals, p);
+        if (v === void 0) {
+          if (!ctx?.__streamingNow) {
+            if (document.body?.hasAttribute("data-dc-editor-on")) {
+              return h(
+                "span",
+                { key: i, className: "sc-interp sc-unresolved" },
+                "{{ " + p.trim() + " }}"
+              );
+            }
+            warnUnresolved(
+              ctx,
+              "{{ " + p.trim() + " }} never resolved \u2014 rendered as empty"
+            );
+            return null;
+          }
+          return h(
+            "span",
+            { key: i, className: "sc-interp sc-missing" },
+            p.trim()
+          );
+        }
+        if (getReact().isValidElement(v) || Array.isArray(v)) {
+          return h(getReact().Fragment, { key: i }, v);
+        }
+        if (v === null || typeof v === "boolean") return null;
+        return h("span", { key: i, className: "sc-interp" }, String(v));
+      })
+    );
+  }
+  function walkFor(el, host) {
+    const listGet = compileAttr(el.getAttribute("list") || "");
+    const asName = el.getAttribute("as") || "item";
+    const hintN = parseInt(el.getAttribute("hint-placeholder-count") || "0", 10);
+    const kids = walkChildren(el, host);
+    const listSrc = el.getAttribute("list") || "";
+    return (vals, ctx, key) => {
+      let list = listGet(vals);
+      if (!Array.isArray(list)) {
+        if (!ctx?.__streamingNow) {
+          if (list !== void 0 && list !== null) {
+            warnUnresolved(
+              ctx,
+              'sc-for list="' + listSrc + '" is not an array (' + typeof list + ")"
+            );
+          }
+          list = [];
+        } else {
+          list = hintN > 0 ? Array(hintN).fill(void 0) : [];
+        }
+      }
+      return h(
+        getReact().Fragment,
+        { key },
+        list.map((item, i) => {
+          const sub = { ...vals, [asName]: item, $index: i };
+          return h(
+            getReact().Fragment,
+            { key: i },
+            kids.map((b, j) => b(sub, ctx, j))
+          );
+        })
+      );
+    };
+  }
+  function walkIf(el, host) {
+    const valGet = compileAttr(el.getAttribute("value") || "");
+    const hintRaw = el.getAttribute("hint-placeholder-val");
+    const hintGet = hintRaw != null ? compileAttr(hintRaw) : null;
+    const kids = walkChildren(el, host);
+    return (vals, ctx, key) => {
+      let v = valGet(vals);
+      if (v === void 0 && hintGet && ctx?.__streamingNow) v = hintGet(vals);
+      return v ? h(
+        getReact().Fragment,
+        { key },
+        kids.map((b, j) => b(vals, ctx, j))
+      ) : null;
+    };
+  }
+  function walkComponent(el, host) {
+    const name = el.getAttribute("name") || el.getAttribute("component") || "";
+    el.removeAttribute("name");
+    el.removeAttribute("component");
+    const tplId = el.getAttribute("data-dc-tpl");
+    const styleRaw = el.getAttribute("style");
+    el.removeAttribute("style");
+    const styleGet = styleRaw != null ? compileAttr(styleRaw) : null;
+    const { propGetters, hintSize } = collectProps(el, "dc-import", host);
+    const kids = walkChildren(el, host);
+    return (vals, ctx, key) => {
+      const props = {
+        key,
+        __hintSize: hintSize,
+        __tplId: tplId,
+        __hostStyle: styleGet ? hostPositionStyle(styleGet(vals)) : void 0
+      };
+      for (const [k, g] of propGetters) {
+        const v = g(vals);
+        if (k === "dcProps") {
+          if (v && typeof v === "object") Object.assign(props, v);
+          continue;
+        }
+        props[k] = v;
+      }
+      if (kids.length) props.children = kids.map((b, j) => b(vals, ctx, j));
+      return h(host.component(name), props);
+    };
+  }
+  function walkXImport(el, host) {
+    const globalNameGet = compileAttr(
+      el.getAttribute("component-from-global-scope") || ""
+    );
+    const exportNameGet = compileAttr(
+      el.getAttribute("component") || el.getAttribute("name") || ""
+    );
+    const fromRaw = el.getAttribute("from") || (el.getAttribute("component-from-global-scope") ? "" : el.getAttribute("src") || el.getAttribute("import") || "");
+    const urls = fromRaw.trim() ? fromRaw.trim().split(/\s+/) : [];
+    const url = urls.length ? urls[urls.length - 1] : "";
+    const kindOf = (u) => /\.(jsx|tsx)(\?|#|$)/i.test(u) ? "jsx" : "js";
+    const tplId = el.getAttribute("data-dc-tpl");
+    const styleRaw = el.getAttribute("style");
+    el.removeAttribute("style");
+    const styleGet = styleRaw != null ? compileAttr(styleRaw) : null;
+    const wrap = tplId != null || styleGet != null;
+    const { propGetters, hintSize } = collectProps(el, "x-import", host);
+    const hasContent = el.children.length > 0 || !!(el.textContent || "").trim();
+    const kids = hasContent ? walkChildren(el, host) : [];
+    const urlBindable = fromRaw.includes("{{");
+    if (urls.length && !urlBindable) {
+      let prev;
+      for (const u of urls) prev = host.loadExternal(kindOf(u), u, prev);
+    }
+    const evalName = (g, vals) => {
+      const v = g(vals);
+      const s = v == null ? "" : String(v);
+      return s.includes("{{") ? "" : s;
+    };
+    return (vals, ctx, key) => {
+      const globalName = evalName(globalNameGet, vals);
+      const name = globalName || evalName(exportNameGet, vals);
+      const C = !name || urlBindable ? null : globalName ? host.resolveExternalGlobal(url, globalName) : host.resolveExternal(url, name);
+      const hostStyle = styleGet ? hostPositionStyle(styleGet(vals)) : void 0;
+      const wrapper = wrap ? {
+        key,
+        className: "sc-host-x",
+        "data-dc-tpl": tplId,
+        style: hostStyle || { display: "contents" }
+      } : null;
+      if (!C) {
+        const error = urlBindable ? "x-import `from` cannot contain {{ \u2026 }} \u2014 module URLs are resolved at parse time; use a literal URL" : host.resolveExternalError(url, name);
+        const ph = host.placeholder({
+          key: wrapper ? void 0 : key,
+          name,
+          hintSize,
+          error
+        });
+        return wrapper ? h("div", wrapper, ph) : ph;
+      }
+      const props = wrapper ? {} : { key };
+      let unresolvedHole = false;
+      for (const [k, g] of propGetters) {
+        if (k === "component" || k === "componentFromGlobalScope" || k === "from") {
+          continue;
+        }
+        const v = g(vals);
+        if (v === void 0) unresolvedHole = true;
+        if (k === "dcProps") {
+          if (v && typeof v === "object") Object.assign(props, v);
+          continue;
+        }
+        props[k] = v;
+      }
+      if (unresolvedHole && ctx?.__htmlStreamingNow) {
+        const ph = host.placeholder({
+          key: wrapper ? void 0 : key,
+          name,
+          hintSize,
+          error: null
+        });
+        return wrapper ? h("div", wrapper, ph) : ph;
+      }
+      if (kids.length) props.children = kids.map((b, j) => b(vals, ctx, j));
+      return wrapper ? h("div", wrapper, h(C, props)) : h(C, props);
+    };
+  }
+  function contentKey(el) {
+    const clone = el.cloneNode(true);
+    for (const d of clone.querySelectorAll("*")) {
+      while (d.attributes.length) d.removeAttribute(d.attributes[0].name);
+    }
+    const s = clone.innerHTML;
+    let h2 = 5381;
+    for (let i = 0; i < s.length; i++) h2 = (h2 << 5) + h2 + s.charCodeAt(i) | 0;
+    return s.length + "." + (h2 >>> 0).toString(36);
+  }
+  var NEVER_CONTENT_KEYED = new Set(
+    "script style textarea option title select canvas iframe video audio".split(
+      " "
+    )
+  );
+  var NOT_INLINE_SELECTOR = ":not(" + [...INLINE_TEXT_TAGS].join(",") + ")";
+  function walkElement(el, host) {
+    const realTag = RAW_UNWRAP[el.localName] || el.localName;
+    const tplId = el.getAttribute("data-dc-tpl");
+    const inlineOnly = el.childNodes.length > 0 && !NEVER_CONTENT_KEYED.has(realTag) && el.querySelector(NOT_INLINE_SELECTOR) === null;
+    const keySuffix = inlineOnly ? "|" + contentKey(el) : "";
+    const { propGetters, pseudoClasses } = collectProps(el, "dom", host);
+    const kids = walkChildren(el, host);
+    return (vals, ctx, key) => {
+      const props = {
+        key: key + keySuffix,
+        "data-dc-tpl": tplId
+      };
+      for (const [k, g] of propGetters) {
+        let v = g(vals);
+        if (k === "style" && typeof v === "string") v = cssToObj(v);
+        if ((k === "value" || k === "checked") && v === void 0) {
+          v = k === "checked" ? false : "";
+        }
+        props[k] = v;
+      }
+      if (pseudoClasses.length) {
+        props.className = [props.className, ...pseudoClasses].filter(Boolean).join(" ");
+      }
+      return h(realTag, props, ...kids.map((b, j) => b(vals, ctx, j)));
+    };
+  }
+
+  // src/logic.ts
+  var StreamableLogic = class {
+    constructor(props) {
+      __publicField(this, "props");
+      __publicField(this, "state", {});
+      /** Back-pointer to the wrapper component, installed after construction. */
+      __publicField(this, "__host");
+      this.props = props || {};
+    }
+    setState(update, cb) {
+      this.__host && this.__host.__setLogicState(update, cb);
+    }
+    forceUpdate() {
+      this.__host && this.__host.forceUpdate();
+    }
+    componentDidMount() {
+    }
+    componentDidUpdate(_prevProps) {
+    }
+    componentWillUnmount() {
+    }
+    /** The flat object the template renders against (merged over props). */
+    renderVals() {
+      return {};
+    }
+  };
+  function evalDcLogic(src) {
+    //! nosemgrep: eval-and-function-constructor
+    const fn = new Function(
+      "DCLogic",
+      "StreamableLogic",
+      "React",
+      src + '\n;return (typeof Component!=="undefined"&&Component)||undefined;'
+    );
+    return fn(StreamableLogic, StreamableLogic, getReact());
+  }
+
+  // src/component.ts
+  function shallowEqual(a, b) {
+    if (!b) return false;
+    const ak = Object.keys(a).filter((k) => k !== "children");
+    const bk = Object.keys(b).filter((k) => k !== "children");
+    if (ak.length !== bk.length) return false;
+    for (const k of ak) if (a[k] !== b[k]) return false;
+    return true;
+  }
+  function Placeholder({
+    name,
+    hintSize,
+    streaming,
+    error
+  }) {
+    const [w, hgt] = (hintSize || "100%,60px").split(",");
+    return h(
+      "div",
+      {
+        className: "sc-placeholder" + (streaming ? " sc-streaming" : ""),
+        style: { width: w.trim(), height: hgt && hgt.trim() },
+        title: name
+      },
+      error ? h(
+        "div",
+        { className: "sc-placeholder-error" },
+        (name ? name + ": " : "") + error
+      ) : null
+    );
+  }
+  function hintToMin(hint) {
+    if (!hint) return void 0;
+    const [w, hgt] = hint.split(",");
+    return { minWidth: w.trim(), minHeight: hgt && hgt.trim() };
+  }
+  function createComponentFactory(registry, ensureFetched) {
+    const React = getReact();
+    const AncestorContext = React.createContext([]);
+    class StreamableComponent extends React.Component {
+      constructor(props) {
+        super(props);
+        __publicField(this, "__name");
+        __publicField(this, "__sub");
+        __publicField(this, "__needsDidMount", false);
+        /** Snapshot of the registry's streaming flags taken at render time —
+         *  builders read it off the RenderCtx (this) to pick placeholder vs
+         *  render-nothing for unresolved values. */
+        __publicField(this, "__streamingNow", false);
+        __publicField(this, "__htmlStreamingNow", false);
+        /** When a construct throws, remember the (class, registry.ver, props)
+         *  triple so render-time reconcile doesn't re-attempt it on every parent
+         *  re-render. A registry bump (new class, template, external module
+         *  resolving via bumpAll) changes `ver` and breaks the memo so an
+         *  env-dependent constructor can self-heal. */
+        __publicField(this, "__failedLogic", null);
+        __publicField(this, "__failedUserProps", null);
+        __publicField(this, "__failedVer", -1);
+        /** Per-instance constructor error — kept here (not on the registry entry)
+         *  so one instance's successful construct can't hide a sibling's failure,
+         *  and a construct can never wipe an eval error `updateJs` recorded on
+         *  `r.logicError`. */
+        __publicField(this, "__ctorError", null);
+        __publicField(this, "logic");
+        this.__name = props.__name;
+        this.state = { __v: 0, __err: null };
+        this.__sub = () => {
+          if (this.state.__err) this.setState({ __err: null });
+          this.forceUpdate();
+        };
+        this.__makeLogic(registry.get(this.__name).Logic, null);
+        ensureFetched(this.__name);
+      }
+      /** Error-boundary hook: a render crash anywhere in this DC's subtree
+       *  (its own template, an x-import'd component, a child DC without its
+       *  own deeper boundary) lands here instead of unmounting the page. */
+      static getDerivedStateFromError(e) {
+        return { __err: e instanceof Error && e.message ? e.message : String(e) };
+      }
+      componentDidCatch(e, info) {
+        console.error(
+          "[dc-runtime] render error in <" + this.__name + ">:",
+          e,
+          info?.componentStack || ""
+        );
+      }
+      /** Instantiate the logic class (or the no-op base) and adopt `prevState`
+       *  over its initial state — used both at mount and on hot-swap. */
+      __makeLogic(Logic, prevState) {
+        const L = Logic || StreamableLogic;
+        try {
+          this.logic = new L(this.__userProps());
+          this.__failedLogic = null;
+          this.__failedUserProps = null;
+          this.__ctorError = null;
+        } catch (e) {
+          console.error(e);
+          this.__failedLogic = Logic;
+          this.__failedUserProps = this.__userProps();
+          this.__failedVer = registry.get(this.__name).ver;
+          this.__ctorError = this.__name + ": " + (e instanceof Error && e.message ? e.message : String(e));
+          this.logic = new StreamableLogic(
+            this.__userProps()
+          );
+        }
+        this.logic.__host = this;
+        if (prevState)
+          this.logic.state = { ...this.logic.state || {}, ...prevState };
+      }
+      /** The props the author's logic + template see — internal __-prefixed
+       *  wiring stripped. */
+      __userProps() {
+        const { __name, __hintSize, __tplId, __hostStyle, ...rest } = this.props;
+        return rest;
+      }
+      __setLogicState(update, cb) {
+        const prev = this.logic.state;
+        const patch = typeof update === "function" ? update(prev) : update;
+        this.logic.state = { ...prev, ...patch };
+        this.setState((s) => ({ __v: s.__v + 1 }), cb);
+      }
+      /** Swap the logic instance when the registry's Logic class changed
+       *  (streaming completion, hot reload). State carries over; didMount
+       *  re-fires after the swap commits so refs exist. */
+      __reconcileLogic() {
+        const r = registry.get(this.__name);
+        const Next = r.Logic;
+        const Cur = this.logic.constructor;
+        if (Next === Cur || !Next && Cur === StreamableLogic || Next === this.__failedLogic && r.ver === this.__failedVer && shallowEqual(this.__userProps(), this.__failedUserProps)) {
+          return;
+        }
+        if (!this.__needsDidMount) {
+          try {
+            this.logic.componentWillUnmount();
+          } catch (e) {
+            console.error(e);
+          }
+        }
+        this.__makeLogic(Next, this.logic.state);
+        this.__needsDidMount = true;
+      }
+      componentDidMount() {
+        registry.get(this.__name).subs.add(this.__sub);
+        try {
+          this.logic.componentDidMount();
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      componentDidUpdate(prevProps) {
+        this.logic.props = this.__userProps();
+        if (this.__needsDidMount) {
+          if (this.state.__err || !registry.get(this.__name).tpl) return;
+          this.__needsDidMount = false;
+          try {
+            this.logic.componentDidMount();
+          } catch (e) {
+            console.error(e);
+          }
+        } else {
+          try {
+            this.logic.componentDidUpdate(prevProps);
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+      componentWillUnmount() {
+        registry.get(this.__name).subs.delete(this.__sub);
+        if (!this.__needsDidMount) {
+          try {
+            this.logic.componentWillUnmount();
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+      render() {
+        const r = registry.get(this.__name);
+        const cls = "sc-host" + (r.htmlStreaming ? " sc-streaming-html" : "") + (r.jsStreaming ? " sc-streaming-js" : "");
+        const hintStyle = r.htmlStreaming ? hintToMin(this.props.__hintSize) : void 0;
+        const hostStyle = this.props.__hostStyle || hintStyle ? { ...hintStyle || {}, ...this.props.__hostStyle || {} } : void 0;
+        const hostBase = {
+          className: cls,
+          style: hostStyle,
+          "data-sc-name": this.__name,
+          "data-dc-tpl": this.props.__tplId
+        };
+        const chain = Array.isArray(this.context) ? this.context : [];
+        if (chain.includes(this.__name)) {
+          const cycle = [
+            ...chain.slice(chain.indexOf(this.__name)),
+            this.__name
+          ].join(" \u2192 ");
+          return h(
+            "div",
+            { ...hostBase, className: cls + " sc-has-error" },
+            h(Placeholder, {
+              name: this.__name,
+              hintSize: this.props.__hintSize,
+              error: "circular import: " + cycle
+            })
+          );
+        }
+        if (this.state.__err) {
+          return h(
+            "div",
+            { ...hostBase, className: cls + " sc-has-error" },
+            h(
+              "div",
+              { className: "sc-logic-error", "data-omelette-chrome": "" },
+              this.__name + ": " + this.state.__err
+            ),
+            h(Placeholder, {
+              name: this.__name,
+              hintSize: this.props.__hintSize,
+              error: this.state.__err
+            })
+          );
+        }
+        this.__reconcileLogic();
+        if (!r.tpl) {
+          return h(
+            "div",
+            hostBase,
+            h(Placeholder, { name: this.__name, hintSize: this.props.__hintSize })
+          );
+        }
+        const userProps = this.__userProps();
+        this.logic.props = userProps;
+        let vals = userProps;
+        let renderErr = r.logicError || this.__ctorError;
+        try {
+          vals = { ...userProps, ...this.logic.renderVals() || {} };
+        } catch (e) {
+          console.error(e);
+          renderErr = this.__name + ".renderVals(): " + (e instanceof Error && e.message ? e.message : String(e));
+        }
+        this.__streamingNow = !!(r.htmlStreaming || r.jsStreaming);
+        this.__htmlStreamingNow = !!r.htmlStreaming;
+        return h(
+          "div",
+          { ...hostBase, className: cls + (renderErr ? " sc-has-error" : "") },
+          renderErr && h(
+            "div",
+            { className: "sc-logic-error", "data-omelette-chrome": "" },
+            renderErr
+          ),
+          h(
+            AncestorContext.Provider,
+            { value: [...chain, this.__name] },
+            r.tpl(vals, this)
+          )
+        );
+      }
+    }
+    __publicField(StreamableComponent, "contextType", AncestorContext);
+    const named = /* @__PURE__ */ new Map();
+    function getDC(name) {
+      const hit = named.get(name);
+      if (hit) return hit;
+      function Dispatcher(p) {
+        const [, setTick] = React.useState(0);
+        React.useEffect(() => {
+          const sub = () => setTick((n) => n + 1);
+          registry.get(name).subs.add(sub);
+          return () => {
+            registry.get(name).subs.delete(sub);
+          };
+        }, []);
+        ensureFetched(name);
+        return h(StreamableComponent, { ...p, __name: name });
+      }
+      Dispatcher.displayName = name;
+      named.set(name, Dispatcher);
+      return Dispatcher;
+    }
+    return {
+      getDC,
+      StreamableComponent
+    };
+  }
+
+  // src/cdn.ts
+  var REACT_URL = "https://unpkg.com/react@18.3.1/umd/react.production.min.js";
+  var REACT_SRI = "sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z";
+  var REACT_DOM_URL = "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js";
+  var REACT_DOM_SRI = "sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1";
+  var BABEL_URL = "https://unpkg.com/@babel/standalone@7.29.0/babel.min.js";
+  var BABEL_SRI = "sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y";
+  function cdnScriptFor(url, sri) {
+    const res = window.__resources;
+    const v = res ? res[url] : void 0;
+    return typeof v === "string" && v ? { src: v } : { src: url, integrity: sri };
+  }
+
+  // src/external.ts
+  var isCustomElementName = (n) => !n.includes(".") && n.includes("-");
+  function isRenderableType(g) {
+    if (typeof g === "function") return !isElementClass(g);
+    return typeof g === "object" && g !== null && typeof g.$$typeof === "symbol";
+  }
+  function resolveDottedPath(root, name) {
+    let cur = root;
+    for (const seg of name.split(".")) {
+      if (cur == null) return void 0;
+      cur = cur[seg];
+    }
+    return cur;
+  }
+  var GLOBAL_POLL_INTERVAL_MS = 50;
+  var GLOBAL_POLL_TIMEOUT_MS = 3e4;
+  function createExternalModules(onResolved) {
+    const cache = /* @__PURE__ */ new Map();
+    let babelLoading = null;
+    const reportedMissing = /* @__PURE__ */ new Map();
+    const polling = /* @__PURE__ */ new Set();
+    function ensureBabel() {
+      if (window.Babel) return Promise.resolve();
+      if (babelLoading) return babelLoading;
+      const babel = cdnScriptFor(BABEL_URL, BABEL_SRI);
+      babelLoading = new Promise((res, rej) => {
+        const s = document.createElement("script");
+        s.src = babel.src;
+        if (babel.integrity) {
+          s.integrity = babel.integrity;
+          s.crossOrigin = "anonymous";
+        }
+        s.onload = () => res();
+        s.onerror = rej;
+        document.head.appendChild(s);
+      });
+      return babelLoading;
+    }
+    const pending = /* @__PURE__ */ new Map();
+    function load(kind, url, after) {
+      const existing = pending.get(url);
+      if (existing) return existing;
+      cache.set(url, null);
+      console.info("[dc-runtime] x-import: loading", url, "(" + kind + ")");
+      const ready = Promise.all([
+        kind === "jsx" ? ensureBabel() : Promise.resolve(),
+        after ?? Promise.resolve()
+      ]);
+      const p = ready.then(() => fetch(url)).then((r) => {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.text();
+      }).then((src) => {
+        const code = kind === "jsx" ? window.Babel.transform(src, {
+          filename: url,
+          presets: ["react", "typescript"]
+        }).code : src;
+        const module = { exports: {} };
+        const before = new Set(Object.keys(window));
+        //! nosemgrep: eval-and-function-constructor
+        new Function("React", "module", "exports", "require", code)(
+          getReact(),
+          module,
+          module.exports,
+          () => ({})
+        );
+        const globals = {};
+        for (const k of Object.keys(window)) {
+          if (!before.has(k) && typeof window[k] === "function") {
+            globals[k] = window[k];
+          }
+        }
+        cache.set(url, { mod: module.exports, globals });
+        console.info(
+          "[dc-runtime] x-import: loaded",
+          url,
+          "\u2014 exports:",
+          Object.keys(module.exports),
+          "window globals:",
+          Object.keys(globals)
+        );
+        onResolved();
+      }).catch((e) => {
+        cache.set(url, {
+          mod: {},
+          globals: {},
+          error: "failed to load: " + (e instanceof Error && e.message ? e.message : String(e))
+        });
+        console.error(
+          "[dc-runtime] x-import: FAILED to load",
+          url,
+          "(" + kind + ")",
+          e
+        );
+        onResolved();
+      });
+      pending.set(url, p);
+      return p;
+    }
+    function resolve2(url, name) {
+      const entry = cache.get(url);
+      if (!entry) return null;
+      const { mod, globals } = entry;
+      const C = mod && mod[name] || globals && globals[name] || typeof window !== "undefined" && window[name] || mod && mod.default;
+      if (typeof C === "function") return C;
+      const key = url + "\0" + name;
+      if (!reportedMissing.has(key)) {
+        reportedMissing.set(
+          key,
+          entry.error || 'no export named "' + name + '" (has: ' + Object.keys(mod).join(", ") + ")"
+        );
+        console.error(
+          "[dc-runtime] x-import: module",
+          url,
+          "loaded but has no component named",
+          JSON.stringify(name),
+          "\u2014 available exports:",
+          Object.keys(mod),
+          "window globals:",
+          Object.keys(globals),
+          ". The module must `module.exports = {" + name + "}` or set `window." + name + "`."
+        );
+      }
+      return null;
+    }
+    function waitForGlobal(name) {
+      if (polling.has(name)) return;
+      polling.add(name);
+      const started = Date.now();
+      const isCE = isCustomElementName(name);
+      const tick = () => {
+        const found = isCE ? customElements.get(name) : isRenderableType(resolveDottedPath(window, name));
+        if (found) {
+          polling.delete(name);
+          onResolved();
+          return;
+        }
+        if (Date.now() - started >= GLOBAL_POLL_TIMEOUT_MS) {
+          console.warn(
+            "[dc-runtime] x-import: global",
+            JSON.stringify(name),
+            "never appeared on window after " + GLOBAL_POLL_TIMEOUT_MS + "ms"
+          );
+          return;
+        }
+        setTimeout(tick, GLOBAL_POLL_INTERVAL_MS);
+      };
+      setTimeout(tick, GLOBAL_POLL_INTERVAL_MS);
+    }
+    function resolveGlobal(url, name) {
+      const isCE = isCustomElementName(name);
+      if (!url) {
+        if (isCE) {
+          if (customElements.get(name)) return name;
+          waitForGlobal(name);
+          return null;
+        }
+        const g2 = resolveDottedPath(window, name);
+        if (isRenderableType(g2)) return g2;
+        waitForGlobal(name);
+        return null;
+      }
+      const entry = cache.get(url);
+      if (!entry) return null;
+      if (isCE && customElements.get(name)) return name;
+      const g = entry.globals[name] ?? resolveDottedPath(window, name);
+      if (isRenderableType(g)) return g;
+      if (name.includes(".")) return null;
+      const key = url + "\0global\0" + name;
+      if (!reportedMissing.has(key)) {
+        reportedMissing.set(key, null);
+        if (isCE && !customElements.get(name)) {
+          console.warn(
+            "[dc-runtime] x-import:",
+            url,
+            "loaded but no custom element",
+            JSON.stringify(name),
+            "is registered and window." + name + " is not a function \u2014 rendering <" + name + "> as an unknown element."
+          );
+        }
+      }
+      return name;
+    }
+    function getError(url, name) {
+      const entry = cache.get(url);
+      if (entry?.error) return entry.error;
+      return reportedMissing.get(url + "\0" + name) || null;
+    }
+    return { load, resolve: resolve2, resolveGlobal, getError };
+  }
+  function isElementClass(g) {
+    try {
+      return typeof g === "function" && typeof HTMLElement !== "undefined" && g.prototype instanceof HTMLElement;
+    } catch {
+      return false;
+    }
+  }
+
+  // src/atomics.ts
+  var ATOMIC_CSS = (
+    // layout
+    ".fx{display:flex}.col{display:flex;flex-direction:column}.grid{display:grid}.ac{align-items:center}.jc{justify-content:center}.jb{justify-content:space-between}.f1{flex:1}.noshrink{flex-shrink:0}.wrap{flex-wrap:wrap}.fw5{font-weight:500}.fw6{font-weight:600}.fw7{font-weight:700}.fw8{font-weight:800}.fs11{font-size:11px}.fs12{font-size:12px}.fs13{font-size:13px}.fs14{font-size:14px}.fs15{font-size:15px}.fs16{font-size:16px}.fs20{font-size:20px}.fs22{font-size:22px}.upper{text-transform:uppercase}.tc{text-align:center}.nowrap{white-space:nowrap}.gap8{gap:8px}.gap10{gap:10px}.gap12{gap:12px}.gap16{gap:16px}.gap24{gap:24px}.m0{margin:0}.mt8{margin-top:8px}.mt12{margin-top:12px}.mt16{margin-top:16px}.mb8{margin-bottom:8px}.mb12{margin-bottom:12px}.mb16{margin-bottom:16px}.posrel{position:relative}.posabs{position:absolute}.round{border-radius:50%}.ohide{overflow:hidden}.bbox{box-sizing:border-box}.pointer{cursor:pointer}.w100{width:100%}.b0{border:none}"
+  );
+
+  // src/helmet.ts
+  var DESIGN_DOC_MODE_RE = /<meta\b[^>]*\bname\s*=\s*["']design_doc_mode["'][^>]*\b(?:content|value)\s*=\s*["'](\w+)["']/i;
+  var CANVAS_BG_LIGHT = "#f0eee6";
+  var CANVAS_BG_DARK = "#2e2c26";
+  function createHelmetManager(doc, isStreaming) {
+    const mounted = /* @__PURE__ */ new Set();
+    const live = /* @__PURE__ */ new Map();
+    let designDocMode = null;
+    let canvasStyleEl = null;
+    let appTheme = "light";
+    try {
+      const ds = doc.documentElement.dataset.theme;
+      appTheme = ds === "dark" || ds === "light" ? ds : new URLSearchParams(doc.defaultView?.location.search ?? "").get(
+        "theme"
+      ) === "dark" ? "dark" : "light";
+    } catch {
+    }
+    function applyCanvasBg() {
+      if (!canvasStyleEl) return;
+      const bg = appTheme === "dark" ? CANVAS_BG_DARK : CANVAS_BG_LIGHT;
+      canvasStyleEl.textContent = `html,body{background:${bg}}#dc-root>.sc-host{position:relative}`;
+    }
+    function postDesignMode(mode) {
+      if (window.parent === window) return;
+      try {
+        window.parent.postMessage({ type: "__dc_design_mode", mode }, "*");
+      } catch {
+      }
+    }
+    function setDesignDocMode(mode) {
+      if (mode === designDocMode) return;
+      designDocMode = mode;
+      postDesignMode(mode);
+      if (mode === "canvas") {
+        doc.documentElement.setAttribute("data-dc-canvas", "");
+        canvasStyleEl = doc.createElement("style");
+        canvasStyleEl.setAttribute("data-dc-canvas", "");
+        applyCanvasBg();
+        doc.head.appendChild(canvasStyleEl);
+      } else {
+        doc.documentElement.removeAttribute("data-dc-canvas");
+        canvasStyleEl?.remove();
+        canvasStyleEl = null;
+      }
+    }
+    window.addEventListener("message", (e) => {
+      const type = e.data && e.data.type;
+      if (type === "__dc_theme") {
+        const t = e.data.theme;
+        if (t === "light" || t === "dark") {
+          appTheme = t;
+          applyCanvasBg();
+        }
+        return;
+      }
+      if (!designDocMode || type !== "__dc_probe") return;
+      postDesignMode(designDocMode);
+    });
+    function compile(node) {
+      const raw = [...node.children];
+      const helmetClosed = node.nextSibling != null || node.parentNode?.nextSibling != null;
+      if (node.hasAttribute("data-dc-atomics") && !mounted.has("__dc-atomics")) {
+        mounted.add("__dc-atomics");
+        const el = doc.createElement("style");
+        el.id = "__dc-atomics";
+        el.textContent = ATOMIC_CSS;
+        doc.head.appendChild(el);
+      }
+      return (_vals, ctx) => {
+        const name = ctx && ctx.__name || "";
+        const streaming = !!(name && isStreaming(name));
+        for (let i = 0; i < raw.length; i++) {
+          const child = raw[i];
+          const tag = child.tagName;
+          const mayBePartial = streaming && !helmetClosed && i === raw.length - 1;
+          if (tag === "SCRIPT") {
+            if (mayBePartial) continue;
+            const key = "SCRIPT|" + (child.getAttribute("src") || child.textContent || "");
+            if (mounted.has(key)) continue;
+            mounted.add(key);
+            const el = doc.createElement("script");
+            for (const { name: an, value } of [...child.attributes])
+              el.setAttribute(an, value);
+            if (child.textContent) el.textContent = child.textContent;
+            doc.head.appendChild(el);
+          } else if (tag === "LINK" || tag === "META") {
+            if (mayBePartial) continue;
+            const key = tag + "|" + (child.getAttribute("href") || child.getAttribute("src") || child.outerHTML);
+            if (mounted.has(key)) continue;
+            mounted.add(key);
+            doc.head.appendChild(child.cloneNode(true));
+          } else {
+            const key = name + "|" + i;
+            let el = live.get(key);
+            if (!el || el.tagName !== tag) {
+              if (el) el.remove();
+              el = doc.createElement(tag.toLowerCase());
+              live.set(key, el);
+              doc.head.appendChild(el);
+            }
+            for (const { name: an, value } of [...child.attributes]) {
+              if (el.getAttribute(an) !== value) el.setAttribute(an, value);
+            }
+            if (el.textContent !== child.textContent)
+              el.textContent = child.textContent;
+          }
+        }
+        return null;
+      };
+    }
+    return { compile, setDesignDocMode };
+  }
+
+  // src/pseudo.ts
+  function createPseudoSheet(doc) {
+    let el = null;
+    const cache = /* @__PURE__ */ new Map();
+    let n = 0;
+    return (pseudo, css) => {
+      const k = pseudo + "|" + css;
+      const hit = cache.get(k);
+      if (hit) return hit;
+      if (!el) {
+        el = doc.createElement("style");
+        doc.head.appendChild(el);
+      }
+      const cls = "scp" + (n++).toString(36);
+      const sel = pseudo === "before" || pseudo === "after" ? "." + cls + "::" + pseudo : "." + cls + ":" + pseudo;
+      el.sheet.insertRule(sel + "{" + css + "}", el.sheet.cssRules.length);
+      cache.set(k, cls);
+      return cls;
+    };
+  }
+
+  // src/registry.ts
+  function createRegistry() {
+    const entries = /* @__PURE__ */ Object.create(null);
+    function get(name) {
+      return entries[name] || (entries[name] = {
+        html: "",
+        tpl: null,
+        Logic: null,
+        jsStreaming: false,
+        htmlStreaming: false,
+        ver: 0,
+        subs: /* @__PURE__ */ new Set(),
+        fetched: false
+      });
+    }
+    function bump(name) {
+      const r = get(name);
+      r.ver++;
+      for (const fn of r.subs) fn();
+    }
+    return {
+      entries,
+      get,
+      bump,
+      bumpAll() {
+        for (const n in entries) bump(n);
+      }
+    };
+  }
+
+  // src/runtime.ts
+  var COMPONENT_DIR = ".";
+  function createRuntime(doc = document) {
+    const registry = createRegistry();
+    const pseudoClass = createPseudoSheet(doc);
+    const helmet = createHelmetManager(
+      doc,
+      (name) => registry.get(name).htmlStreaming
+    );
+    const external = createExternalModules(() => registry.bumpAll());
+    const factory = createComponentFactory(registry, ensureFetched);
+    const host = {
+      component: (name) => factory.getDC(name),
+      placeholder: (props) => h(Placeholder, props),
+      helmet: (node) => helmet.compile(node),
+      loadExternal: (kind, url, after) => external.load(kind, url, after),
+      resolveExternal: (url, name) => external.resolve(url, name),
+      resolveExternalGlobal: (url, name) => external.resolveGlobal(url, name),
+      resolveExternalError: (url, name) => external.getError(url, name),
+      pseudoClass
+    };
+    function ensureFetched(name) {
+      const r = registry.get(name);
+      if (r.fetched) return;
+      r.fetched = true;
+      const url = COMPONENT_DIR + "/" + encodeURIComponent(name) + ".dc.html";
+      fetch(url).then((res) => {
+        if (!res.ok) {
+          console.error(
+            "[dc-runtime] sibling fetch for <" + name + "/> failed:",
+            url,
+            "returned",
+            res.status,
+            "\u2014 the reference renders as an empty placeholder."
+          );
+          return "";
+        }
+        return res.text();
+      }).then((t) => {
+        if (!t) return;
+        const parsed = parseDcText(t);
+        if (!parsed) {
+          console.error(
+            "[dc-runtime] sibling fetch for <" + name + "/>:",
+            url,
+            "has no <x-dc> block \u2014 not a Design Component."
+          );
+          return;
+        }
+        if (parsed.props) r.propsMeta = parsed.props;
+        if (parsed.preview) r.preview = parsed.preview;
+        if (parsed.template && !r.html) updateHtml(name, parsed.template);
+        if (parsed.js && !r.Logic) updateJs(name, parsed.js);
+      }).catch(
+        (e) => console.error(
+          "[dc-runtime] sibling fetch for <" + name + "/> threw:",
+          url,
+          e
+        )
+      );
+    }
+    let rootName = null;
+    function updateHtml(name, html) {
+      const r = registry.get(name);
+      r.html = html;
+      if (name === rootName) {
+        const mode = DESIGN_DOC_MODE_RE.exec(html)?.[1] ?? null;
+        if (mode || !r.htmlStreaming) helmet.setDesignDocMode(mode);
+      }
+      try {
+        r.tpl = compileTemplate(html, host);
+      } catch (e) {
+        console.error("[dc-runtime] template compile FAILED for", name, e);
+      }
+      registry.bump(name);
+    }
+    function updateJs(name, src) {
+      const r = registry.get(name);
+      const seq = r.jsSeq = (r.jsSeq || 0) + 1;
+      try {
+        const Cls = evalDcLogic(src);
+        if (r.jsSeq !== seq) return;
+        if (typeof Cls !== "function") {
+          r.logicError = name + ".dc.html: <script data-dc-script> must define `class Component extends DCLogic`";
+        } else {
+          r.logicError = null;
+          r.Logic = Cls;
+        }
+      } catch (e) {
+        if (r.jsSeq !== seq) return;
+        console.error(
+          "[dc-runtime] logic class eval FAILED for",
+          name,
+          "\u2014 the template renders with props only.",
+          e
+        );
+        r.logicError = name + ": " + (e instanceof Error && e.message ? e.message : String(e));
+      }
+      registry.bump(name);
+    }
+    function setStreaming(name, kind, on) {
+      const r = registry.get(name);
+      if (kind === "html") r.htmlStreaming = !!on;
+      else r.jsStreaming = !!on;
+      let any = false;
+      for (const n in registry.entries) {
+        const e = registry.entries[n];
+        if (e && (e.htmlStreaming || e.jsStreaming)) {
+          any = true;
+          break;
+        }
+      }
+      doc.documentElement.classList.toggle("sc-dc-streaming", any);
+      registry.bump(name);
+    }
+    function dcUpdate(name, kind, content, streaming) {
+      if (streaming) registry.get(name).fetched = true;
+      if (kind === "html") {
+        setStreaming(name, "html", !!streaming);
+        updateHtml(name, content);
+      } else if (kind === "js") {
+        setStreaming(name, "js", !!streaming);
+        if (!streaming) updateJs(name, content);
+      } else if (kind === "props") {
+        const { props, preview } = parseDataProps(content);
+        const r = registry.get(name);
+        r.propsMeta = props ?? void 0;
+        r.preview = preview;
+        registry.bump(name);
+      }
+    }
+    function setProps(name, overrides) {
+      registry.get(name).propOverrides = overrides && typeof overrides === "object" ? { ...overrides } : null;
+      registry.bump(name);
+    }
+    function adoptParsed(name, parsed) {
+      if (!parsed) return;
+      const r = registry.get(name);
+      if (parsed.props) r.propsMeta = parsed.props;
+      if (parsed.preview) r.preview = parsed.preview;
+      if (parsed.template) updateHtml(name, parsed.template);
+      if (parsed.js) updateJs(name, parsed.js);
+    }
+    return {
+      registry,
+      getDC: factory.getDC,
+      updateHtml,
+      updateJs,
+      dcUpdate,
+      setProps,
+      adoptParsed,
+      setRootName: (name) => {
+        rootName = name;
+      },
+      markFetched: (name) => {
+        registry.get(name).fetched = true;
+      },
+      annotatedTemplate: (name) => {
+        const r = registry.get(name);
+        return r.tpl && r.tpl.__annotated || null;
+      },
+      templateSource: (name) => registry.get(name).html || null,
+      StreamableLogic
+    };
+  }
+
+  // src/stream-state.ts
+  function createStreamTracker(staleMs = 6e4, now = Date.now) {
+    const since = /* @__PURE__ */ new Map();
+    const liveOne = (n) => {
+      const t = since.get(n);
+      if (t === void 0) return false;
+      if (now() - t > staleMs) {
+        since.delete(n);
+        return false;
+      }
+      return true;
+    };
+    return {
+      push(name, streaming, viewportKey) {
+        if (viewportKey === "dc-model") return;
+        if (streaming) since.set(name, now());
+        else since.delete(name);
+      },
+      live(name) {
+        if (name !== void 0) return liveOne(name);
+        for (const n of [...since.keys()]) if (liveOne(n)) return true;
+        return false;
+      }
+    };
+  }
+
+  // src/index.ts
+  function hideRawTemplate() {
+    const s = document.createElement("style");
+    s.textContent = "x-dc{display:none!important}";
+    document.head.appendChild(s);
+  }
+  function loadScript(src, integrity) {
+    return new Promise((resolve2, reject) => {
+      //! nosemgrep: create-script-element
+      const s = document.createElement("script");
+      s.src = src;
+      if (integrity) {
+        s.integrity = integrity;
+        s.crossOrigin = "anonymous";
+      }
+      s.async = false;
+      s.onload = () => resolve2();
+      s.onerror = () => reject(new Error(`failed to load ${src}`));
+      document.head.appendChild(s);
+    });
+  }
+  function loadReactUmd() {
+    const w = window;
+    if (w.React && w.ReactDOM) return Promise.resolve();
+    const react = cdnScriptFor(REACT_URL, REACT_SRI);
+    const reactDom = cdnScriptFor(REACT_DOM_URL, REACT_DOM_SRI);
+    return Promise.all([
+      loadScript(react.src, react.integrity),
+      loadScript(reactDom.src, reactDom.integrity)
+    ]).then(() => void 0);
+  }
+  function init() {
+    const runtime = createRuntime(document);
+    let rootName = "Root";
+    const baseCss = document.createElement("style");
+    baseCss.textContent = BASE_CSS;
+    document.head.prepend(baseCss);
+    const notifyHost = () => {
+      if (window.parent === window) return;
+      const r = runtime.registry.entries[rootName];
+      try {
+        window.parent.postMessage(
+          {
+            type: "__dc_booted",
+            rootName,
+            propsMeta: r && r.propsMeta || null,
+            preview: r && r.preview || null
+          },
+          "*"
+        );
+      } catch {
+      }
+    };
+    const streams = createStreamTracker();
+    const api = {
+      __dcUpdate: (name, kind, content, streaming, viewportKey) => {
+        streams.push(name, streaming, viewportKey);
+        runtime.dcUpdate(name, kind, content, streaming);
+        if (name === rootName && !streaming && kind === "props") notifyHost();
+      },
+      __dcStreaming: (name) => streams.live(name),
+      __dcSetProps: (name, overrides) => runtime.setProps(name, overrides),
+      /** Name of the component currently mounted as the page root — DC tools
+       *  push their template-stream here when targeting "the open page". */
+      __dcRootName: () => rootName,
+      /** Editor bridge — the encoded, `data-dc-tpl`-annotated template source.
+       *  The host editor parses this into its own template DOM so it can map a
+       *  rendered node (carrying the same `data-dc-tpl`) back to the source
+       *  node that emitted it. Returns the encoded form (`<sc-comp>`,
+       *  `sc-camel-*` attrs); the editor decodes on serialize. */
+      __dcAnnotatedTemplate: (name) => runtime.annotatedTemplate(name),
+      /** Editor bridge — the *original* (decoded) template source. */
+      __dcTemplateSource: (name) => runtime.templateSource(name),
+      __dcBoot: () => {
+        rootName = boot(runtime, document) ?? rootName;
+        notifyHost();
+      },
+      __dcRegistry: runtime.registry.entries,
+      getDC: (name) => runtime.getDC(name),
+      // `DCLogic` is the documented base class name; `StreamableLogic` is the
+      // implementation alias kept for any project that already references it.
+      DCLogic: runtime.StreamableLogic,
+      StreamableLogic: runtime.StreamableLogic
+    };
+    Object.assign(window, api);
+    window.__dcContentKeyed = true;
+    if (document.readyState !== "loading") api.__dcBoot();
+    else document.addEventListener("DOMContentLoaded", () => api.__dcBoot());
+  }
+  hideRawTemplate();
+  loadReactUmd().then(init).catch((err) => {
+    console.error("[dc] failed to load React or boot:", err);
+    throw err;
+  });
+})();
+
+</script>
+</head>
+<body>
+<x-dc>
+
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&amp;family=Nunito:wght@500;600;700;800&amp;display=swap" rel="stylesheet">
+  <style>
+    @keyframes diceRoll {
+      0% { transform: rotate(0deg) scale(1); }
+      30% { transform: rotate(-14deg) scale(1.06); }
+      60% { transform: rotate(10deg) scale(1.06); }
+      100% { transform: rotate(0deg) scale(1); }
+    }
+    body { margin:0; background: oklch(93% 0.015 75); font-family:'Nunito',sans-serif; }
+    a { color: oklch(45% 0.1 40); }
+    a:hover { color: oklch(38% 0.12 40); }
+  </style>
+  <template id="__bundler_thumbnail">
+    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100" height="100" fill="oklch(93% 0.02 75)"></rect>
+      <text x="50" y="58" font-size="34" text-anchor="middle" fill="oklch(40% 0.1 40)" font-family="sans-serif" font-weight="700">P</text>
+    </svg>
+  </template>
+</helmet>
+
+<section id="turn2" style="padding:40px; display:flex; flex-direction:column; gap:16px; align-items:flex-start;">
+  <div style="font-family:'Baloo 2',sans-serif; font-size:22px; font-weight:700; color:oklch(30% 0.02 60);">Plenus — full flow: menu, lobbies, profile, match (based on 1a)</div>
+  <div style="display:flex; gap:36px; flex-wrap:wrap; align-items:flex-start;">
+
+    <div id="2a" style="display:flex; flex-direction:column; gap:10px; align-items:center;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:14px; background:oklch(30% 0.02 60); color:oklch(97% 0.01 80); padding:3px 10px; border-radius:100px;">2a</span>
+        <span style="font-family:'Nunito',sans-serif; font-size:13px; color:oklch(45% 0.02 60);">Menu → lobby → profile → match (felt dice panel, opponent board, live feedback)</span>
+      </div>
+
+      <div data-screen-label="2a - App Flow" style="position:relative; width:390px; height:844px; background:{{ nav2.theme.phoneBg }}; border-radius:44px; box-shadow:0 22px 50px rgba(60,40,20,0.28), inset 0 0 0 8px oklch(88% 0.02 70); overflow:hidden; display:flex; flex-direction:column; transition:background 0.2s ease;">
+
+        <!-- ============ LOGIN ============ -->
+        <sc-if value="{{ nav2.isLogin }}">
+          <div data-screen-label="Login" style="position:relative; display:flex; flex-direction:column; align-items:center; height:100%; padding:90px 28px 40px 28px; box-sizing:border-box; background:{{ nav2.theme.phoneBg }};">
+            <div onClick="{{ nav2.toggleTheme }}" style="position:absolute; top:20px; right:20px; width:34px; height:34px; border-radius:50%; background:{{ nav2.theme.cardAlt }}; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:15px; color:{{ nav2.theme.textPrimary }};" title="Toggle light / dark theme">{{ nav2.themeToggleIcon }}</div>
+
+            <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:40px; color:{{ nav2.theme.textPrimary }}; letter-spacing:0.5px;">Plenus</div>
+            <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:14px; color:{{ nav2.theme.textSecondary }}; margin-top:4px; margin-bottom:48px;">Board Duel</div>
+
+            <div style="display:flex; flex-direction:column; gap:12px; width:100%;">
+              <input placeholder="Email" value="{{ nav2.loginEmail }}" onChange="{{ nav2.onLoginEmailChange }}" style="font-family:'Nunito',sans-serif; font-weight:700; font-size:14px; padding:15px 16px; border-radius:14px; border:none; background:{{ nav2.theme.inputBg }}; color:{{ nav2.theme.textPrimary }}; box-sizing:border-box;">
+              <input placeholder="Password" type="password" value="{{ nav2.loginPassword }}" onChange="{{ nav2.onLoginPasswordChange }}" style="font-family:'Nunito',sans-serif; font-weight:700; font-size:14px; padding:15px 16px; border-radius:14px; border:none; background:{{ nav2.theme.inputBg }}; color:{{ nav2.theme.textPrimary }}; box-sizing:border-box;">
+            </div>
+
+            <div style="width:100%; text-align:right; margin-top:8px;">
+              <span style="font-family:'Nunito',sans-serif; font-weight:800; font-size:12px; color:oklch(45% 0.1 40); cursor:pointer;">Forgot password?</span>
+            </div>
+
+            <div onClick="{{ nav2.onLogin }}" style="width:100%; text-align:center; margin-top:24px; padding:16px 0; border-radius:16px; background:oklch(62% 0.15 35); color:oklch(98% 0 0); font-family:'Baloo 2',sans-serif; font-weight:700; font-size:16px; cursor:pointer; box-shadow:0 3px 0 oklch(48% 0.14 35); box-sizing:border-box;">Log in</div>
+
+            <div style="display:flex; align-items:center; gap:10px; width:100%; margin:22px 0;">
+              <div style="flex:1; height:1px; background:{{ nav2.theme.border }};"></div>
+              <span style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:{{ nav2.theme.textSecondary }};">or</span>
+              <div style="flex:1; height:1px; background:{{ nav2.theme.border }};"></div>
+            </div>
+
+            <div onClick="{{ nav2.onLogin }}" style="width:100%; text-align:center; padding:15px 0; border-radius:14px; background:{{ nav2.theme.cardAlt }}; color:{{ nav2.theme.textPrimary }}; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:14px; cursor:pointer; box-sizing:border-box;">Continue as guest</div>
+
+            <div style="flex:1;"></div>
+            <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:12.5px; color:{{ nav2.theme.textSecondary }};">New here? <span style="color:oklch(45% 0.1 40); font-weight:800; cursor:pointer;">Create an account</span></div>
+          </div>
+        </sc-if>
+
+        <!-- ============ MAIN MENU ============ -->
+        <sc-if value="{{ nav2.isMenu }}">
+          <div data-screen-label="Main Menu" style="position:relative; display:flex; flex-direction:column; align-items:center; height:100%; padding:64px 22px 40px 22px; box-sizing:border-box; background:{{ nav2.theme.phoneBg }};">
+            <div onClick="{{ nav2.goConfig }}" style="position:absolute; top:20px; left:20px; width:34px; height:34px; border-radius:50%; background:{{ nav2.theme.cardAlt }}; display:flex; align-items:center; justify-content:center; cursor:pointer;">
+              <div style="width:14px; height:14px; border-radius:50%; border:2.5px solid {{ nav2.theme.textPrimary }};"></div>
+            </div>
+            <div onClick="{{ nav2.toggleTheme }}" style="position:absolute; top:20px; right:64px; width:34px; height:34px; border-radius:50%; background:{{ nav2.theme.cardAlt }}; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:15px; color:{{ nav2.theme.textPrimary }};" title="Toggle light / dark theme">{{ nav2.themeToggleIcon }}</div>
+            <div onClick="{{ nav2.goRules }}" style="position:absolute; top:20px; right:20px; width:34px; height:34px; border-radius:50%; background:{{ nav2.theme.cardAlt }}; display:flex; align-items:center; justify-content:center; cursor:pointer; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:16px; color:{{ nav2.theme.textPrimary }};">?</div>
+            <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:30px; color:{{ nav2.theme.textPrimary }}; letter-spacing:0.5px; margin-bottom:2px;">Plenus</div>
+            <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:13px; color:{{ nav2.theme.textSecondary }}; margin-bottom:22px;">Board Duel</div>
+
+            <div onClick="{{ nav2.goProfile }}" style="display:flex; align-items:center; gap:14px; width:100%; padding:14px 16px; border-radius:18px; background:{{ nav2.theme.card }}; box-shadow:inset 0 0 0 1.5px {{ nav2.theme.border }}; cursor:pointer; margin-bottom:18px; box-sizing:border-box;">
+              <div style="width:52px; height:52px; border-radius:50%; background:{{ nav2.profileAvatarColor }}; display:flex; align-items:center; justify-content:center; font-family:'Baloo 2',sans-serif; font-weight:800; color:white; font-size:20px; flex-shrink:0; box-shadow:inset 0 -4px 7px rgba(0,0,0,0.2);">
+                <sc-if value="{{ nav2.hasAvatarIcon }}" hint-placeholder-val="{{ false }}">{{ nav2.profileAvatarIcon }}</sc-if>
+                <sc-if value="{{ nav2.noAvatarIcon }}" hint-placeholder-val="{{ true }}">M</sc-if>
+              </div>
+              <div style="flex:1; min-width:0;">
+                <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:15.5px; color:{{ nav2.theme.textPrimary }};">{{ nav2.profileName }}</div>
+                <div style="display:flex; align-items:center; gap:6px; margin-top:3px;">
+                  <div style="width:12px; height:12px; border-radius:4px; background:{{ nav2.menuRank.tierColor }}; transform:rotate(45deg); flex-shrink:0;"></div>
+                  <span style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11.5px; color:{{ nav2.theme.textSecondary }};">{{ nav2.menuRank.tierLabel }} · view profile</span>
+                </div>
+              </div>
+              <span style="font-size:18px; color:{{ nav2.theme.textSecondary }};">›</span>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:14px; width:100%;">
+              <div onClick="{{ nav2.goCreateLobby }}" style="display:flex; align-items:center; justify-content:space-between; padding:18px 22px; border-radius:16px; background:oklch(62% 0.15 35); color:oklch(98% 0 0); font-family:'Baloo 2',sans-serif; font-weight:700; font-size:17px; cursor:pointer; box-shadow:0 3px 0 oklch(48% 0.14 35);">
+                <span>Create Lobby</span><span>›</span>
+              </div>
+              <div onClick="{{ nav2.goJoinLobby }}" style="display:flex; align-items:center; justify-content:space-between; padding:18px 22px; border-radius:16px; background:{{ nav2.theme.cardAlt }}; color:{{ nav2.theme.textPrimary }}; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:17px; cursor:pointer;">
+                <span>Join Lobby</span><span>›</span>
+              </div>
+              <div onClick="{{ nav2.goRanked }}" style="display:flex; align-items:center; justify-content:space-between; padding:18px 22px; border-radius:16px; background:{{ nav2.theme.cardAlt }}; color:{{ nav2.theme.textPrimary }}; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:17px; cursor:pointer;">
+                <span>Ranked</span><span>›</span>
+              </div>
+            </div>
+
+            <div style="flex:1;"></div>
+            <div onClick="{{ nav2.goGame }}" style="font-family:'Nunito',sans-serif; font-weight:800; font-size:13px; color:oklch(45% 0.1 40); cursor:pointer;">Resume match in progress</div>
+          </div>
+        </sc-if>
+
+        <!-- ============ CONFIGURATION ============ -->
+        <sc-if value="{{ nav2.isConfig }}">
+          <div data-screen-label="Configuration" style="display:flex; flex-direction:column; height:100%; padding:22px 24px; box-sizing:border-box; background:{{ nav2.theme.phoneBg }}; overflow-y:auto;">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:26px;">
+              <div onClick="{{ nav2.goMenu }}" style="width:34px; height:34px; border-radius:50%; background:{{ nav2.theme.cardAlt }}; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px; color:{{ nav2.theme.textPrimary }};">‹</div>
+              <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:19px; color:{{ nav2.theme.textPrimary }};">Configuration</div>
+            </div>
+
+            <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:11px; letter-spacing:0.4px; text-transform:uppercase; color:{{ nav2.theme.textSecondary }}; margin-bottom:10px;">Appearance</div>
+            <div style="display:flex; gap:4px; padding:4px; border-radius:14px; background:{{ nav2.theme.cardAlt }}; margin-bottom:26px;">
+              <div onClick="{{ nav2.toggleTheme }}" style="flex:1; text-align:center; padding:11px 0; border-radius:11px; background:{{ nav2.lightTabBg }}; color:{{ nav2.lightTabColor }}; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:13.5px; cursor:pointer;">☀ Light</div>
+              <div onClick="{{ nav2.toggleTheme }}" style="flex:1; text-align:center; padding:11px 0; border-radius:11px; background:{{ nav2.darkTabBg }}; color:{{ nav2.darkTabColor }}; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:13.5px; cursor:pointer;">☾ Dark</div>
+            </div>
+
+            <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:11px; letter-spacing:0.4px; text-transform:uppercase; color:{{ nav2.theme.textSecondary }}; margin-bottom:10px;">Sound &amp; haptics</div>
+            <div style="display:flex; flex-direction:column; gap:2px; border-radius:16px; background:{{ nav2.theme.card }}; padding:6px 16px; margin-bottom:26px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0;">
+                <span style="font-family:'Nunito',sans-serif; font-weight:700; font-size:14px; color:{{ nav2.theme.textPrimary }};">Sound effects</span>
+                <div onClick="{{ nav2.onToggleSound }}" style="width:42px; height:24px; border-radius:100px; background:{{ nav2.soundTrackBg }}; position:relative; cursor:pointer;">
+                  <div style="width:18px; height:18px; border-radius:50%; background:white; position:absolute; top:3px; left:{{ nav2.soundThumbLeft }}; box-shadow:0 1px 2px rgba(0,0,0,0.3);"></div>
+                </div>
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0;">
+                <span style="font-family:'Nunito',sans-serif; font-weight:700; font-size:14px; color:{{ nav2.theme.textPrimary }};">Music</span>
+                <div onClick="{{ nav2.onToggleMusic }}" style="width:42px; height:24px; border-radius:100px; background:{{ nav2.musicTrackBg }}; position:relative; cursor:pointer;">
+                  <div style="width:18px; height:18px; border-radius:50%; background:white; position:absolute; top:3px; left:{{ nav2.musicThumbLeft }}; box-shadow:0 1px 2px rgba(0,0,0,0.3);"></div>
+                </div>
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0;">
+                <span style="font-family:'Nunito',sans-serif; font-weight:700; font-size:14px; color:{{ nav2.theme.textPrimary }};">Vibration</span>
+                <div onClick="{{ nav2.onToggleVibration }}" style="width:42px; height:24px; border-radius:100px; background:{{ nav2.vibrationTrackBg }}; position:relative; cursor:pointer;">
+                  <div style="width:18px; height:18px; border-radius:50%; background:white; position:absolute; top:3px; left:{{ nav2.vibrationThumbLeft }}; box-shadow:0 1px 2px rgba(0,0,0,0.3);"></div>
+                </div>
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0;">
+                <span style="font-family:'Nunito',sans-serif; font-weight:700; font-size:14px; color:{{ nav2.theme.textPrimary }};">Push notifications</span>
+                <div onClick="{{ nav2.onToggleNotifications }}" style="width:42px; height:24px; border-radius:100px; background:{{ nav2.notificationsTrackBg }}; position:relative; cursor:pointer;">
+                  <div style="width:18px; height:18px; border-radius:50%; background:white; position:absolute; top:3px; left:{{ nav2.notificationsThumbLeft }}; box-shadow:0 1px 2px rgba(0,0,0,0.3);"></div>
+                </div>
+              </div>
+            </div>
+
+            <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:11px; letter-spacing:0.4px; text-transform:uppercase; color:{{ nav2.theme.textSecondary }}; margin-bottom:10px;">Account</div>
+            <div style="display:flex; align-items:center; gap:12px; padding:14px 16px; border-radius:16px; background:{{ nav2.theme.card }}; margin-bottom:26px;">
+              <div style="width:40px; height:40px; border-radius:50%; background:oklch(65% 0.12 45); display:flex; align-items:center; justify-content:center; font-family:'Baloo 2',sans-serif; font-weight:700; color:white; font-size:16px;">M</div>
+              <div style="flex:1;">
+                <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:14px; color:{{ nav2.theme.textPrimary }};">{{ nav2.profileName }}</div>
+                <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:{{ nav2.theme.textSecondary }};">Manage in Profile</div>
+              </div>
+            </div>
+
+            <div onClick="{{ nav2.onLogout }}" style="text-align:center; padding:14px 0; border-radius:14px; background:{{ nav2.theme.cardAlt }}; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:14px; color:oklch(58% 0.16 30); cursor:pointer;">Log out</div>
+
+            <div style="flex:1;"></div>
+            <div style="text-align:center; font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:{{ nav2.theme.textSecondary }};">Plenus Board Duel · v1.0.0</div>
+          </div>
+        </sc-if>
+
+        <!-- ============ RANKED ============ -->
+        <sc-if value="{{ nav2.isRanked }}">
+          <div data-screen-label="Ranked" style="position:relative; display:flex; flex-direction:column; height:100%; padding:22px 24px; box-sizing:border-box; background:{{ nav2.theme.phoneBg }};">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
+              <div onClick="{{ nav2.goMenu }}" style="width:34px; height:34px; border-radius:50%; background:{{ nav2.theme.cardAlt }}; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px; color:{{ nav2.theme.textPrimary }};">‹</div>
+              <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:19px; color:{{ nav2.theme.textPrimary }}; flex:1;">Ranked</div>
+              <div onClick="{{ nav2.toggleRankInfo }}" style="width:34px; height:34px; border-radius:50%; background:{{ nav2.theme.cardAlt }}; display:flex; align-items:center; justify-content:center; cursor:pointer; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:16px; color:{{ nav2.theme.textPrimary }};">i</div>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:16px; padding:18px; border-radius:20px; background:{{ nav2.theme.card }}; margin-bottom:18px;">
+              <div style="width:64px; height:64px; border-radius:16px; background:{{ nav2.ranked.tierColor }}; transform:rotate(45deg); flex-shrink:0; box-shadow:inset 0 -6px 10px rgba(0,0,0,0.18), inset 0 4px 6px rgba(255,255,255,0.35);"></div>
+              <div style="flex:1;">
+                <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:{{ nav2.theme.textSecondary }}; text-transform:uppercase; letter-spacing:0.4px;">{{ nav2.ranked.categoryName }}</div>
+                <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:20px; color:{{ nav2.theme.textPrimary }};">{{ nav2.ranked.tierLabel }}</div>
+                <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:12px; color:{{ nav2.theme.textSecondary }};">Global rank #{{ nav2.ranked.yourRank }} · {{ nav2.ranked.winsInTier }}/10 wins this tier</div>
+              </div>
+            </div>
+
+            <div style="margin-bottom:20px;">
+              <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                <span style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:{{ nav2.theme.textSecondary }};">Progress to {{ nav2.ranked.nextTierLabel }}</span>
+                <span style="font-family:'Nunito',sans-serif; font-weight:800; font-size:11px; color:{{ nav2.theme.textPrimary }};">{{ nav2.ranked.winsInTier }}/{{ nav2.ranked.winsNeeded }} wins</span>
+              </div>
+              <div style="display:flex; gap:5px;">
+                <sc-for list="{{ nav2.ranked.winPips }}" as="pip" hint-placeholder-count="10">
+                  <div style="flex:1; height:10px; border-radius:5px; background:{{ pip.bg }};"></div>
+                </sc-for>
+              </div>
+            </div>
+
+            <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:11px; letter-spacing:0.4px; text-transform:uppercase; color:{{ nav2.theme.textSecondary }}; margin-bottom:10px;">Leaderboard</div>
+            <div style="display:flex; flex-direction:column; gap:8px; overflow-y:auto; flex:1; padding-right:2px;">
+              <sc-for list="{{ nav2.ranked.rows }}" as="row" hint-placeholder-count="8">
+                <div style="display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:14px; background:{{ row.rowBg }};">
+                  <div style="width:20px; text-align:center; font-family:'Baloo 2',sans-serif; font-weight:800; font-size:13px; color:{{ row.rowTextColor }};">{{ row.rank }}</div>
+                  <div style="width:18px; height:18px; border-radius:5px; background:{{ row.tierColor }}; transform:rotate(45deg); flex-shrink:0;"></div>
+                  <div style="flex:1;">
+                    <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:13.5px; color:{{ row.rowTextColor }};">{{ row.name }}</div>
+                    <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:10.5px; color:{{ nav2.theme.textSecondary }};">{{ row.tierLabel }}</div>
+                  </div>
+                  <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:13px; color:{{ row.rowTextColor }};">{{ row.wins }}</div>
+                </div>
+              </sc-for>
+            </div>
+
+            <sc-if value="{{ nav2.rankInfoOpen }}">
+              <div style="position:absolute; inset:0; background:rgba(30,22,15,0.45); display:flex; align-items:center; justify-content:center;">
+                <div style="width:320px; max-height:700px; overflow-y:auto; background:{{ nav2.theme.phoneBg }}; border-radius:20px; padding:20px; box-shadow:0 20px 40px rgba(0,0,0,0.3); box-sizing:border-box;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:17px; color:{{ nav2.theme.textPrimary }};">How ranking works</div>
+                    <div onClick="{{ nav2.toggleRankInfo }}" style="width:26px; height:26px; border-radius:50%; background:{{ nav2.theme.cardAlt }}; display:flex; align-items:center; justify-content:center; cursor:pointer; font-weight:700; color:{{ nav2.theme.textPrimary }};">×</div>
+                  </div>
+                  <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:12px; color:{{ nav2.theme.textSecondary }}; margin-bottom:16px;">Win 10 matches to level up to the next tier. Your tier is shared across the whole ranked ladder — there's only one Overall Rating.</div>
+
+                  <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:18px;">
+                    <sc-for list="{{ nav2.rankTierRows }}" as="tr" hint-placeholder-count="8">
+                      <div style="display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:12px; background:{{ tr.rowBg }};">
+                        <div style="width:16px; height:16px; border-radius:5px; background:{{ tr.tierColor }}; transform:rotate(45deg); flex-shrink:0;"></div>
+                        <div style="flex:1; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:13.5px; color:{{ tr.rowTextColor }};">{{ tr.tierLabel }}</div>
+                        <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:12px; color:{{ tr.rowTextColor }};">top {{ tr.pct }}% of players</div>
+                      </div>
+                    </sc-for>
+                  </div>
+
+                  <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:11px; letter-spacing:0.4px; text-transform:uppercase; color:{{ nav2.theme.textSecondary }}; margin-bottom:8px;">Higher ranks play differently</div>
+                  <div style="display:flex; flex-direction:column; gap:10px;">
+                    <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:12px; color:{{ nav2.theme.textPrimary }}; padding:12px; border-radius:12px; background:{{ nav2.theme.cardAlt }};">Gold and up: matchmaking weighs skill over queue speed, so games take a little longer to find.</div>
+                    <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:12px; color:{{ nav2.theme.textPrimary }}; padding:12px; border-radius:12px; background:{{ nav2.theme.cardAlt }};">Diamond and up: one loss can drop you a full tier, so every match counts.</div>
+                    <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:12px; color:{{ nav2.theme.textPrimary }}; padding:12px; border-radius:12px; background:{{ nav2.theme.cardAlt }};">Aurelune is a live leaderboard, not a checkpoint — you can be overtaken any time someone below you wins.</div>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <!-- ============ CREATE LOBBY ============ -->
+        <sc-if value="{{ nav2.isCreateLobby }}">
+          <div data-screen-label="Create Lobby" style="display:flex; flex-direction:column; height:100%; padding:22px 24px; box-sizing:border-box;">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:28px;">
+              <div onClick="{{ nav2.goMenu }}" style="width:34px; height:34px; border-radius:50%; background:oklch(90% 0.02 72); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px; color:oklch(35% 0.02 60);">‹</div>
+              <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:19px; color:oklch(30% 0.02 60);">Create Lobby</div>
+            </div>
+
+            <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:12px; color:oklch(50% 0.02 60); margin-bottom:8px;">Lobby code</div>
+            <div style="text-align:center; padding:18px 0; border-radius:16px; background:oklch(90% 0.02 72); font-family:'Baloo 2',sans-serif; font-weight:800; font-size:28px; letter-spacing:4px; color:oklch(30% 0.02 60); margin-bottom:28px;">{{ nav2.lobbyCode }}</div>
+
+            <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:12px; color:oklch(50% 0.02 60); margin-bottom:10px;">Players in lobby</div>
+            <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:32px;">
+              <div style="display:flex; align-items:center; gap:12px; padding:12px 14px; border-radius:14px; background:oklch(97% 0.01 80); box-shadow:inset 0 0 0 1.5px oklch(88% 0.02 72);">
+                <div style="width:36px; height:36px; border-radius:50%; background:oklch(65% 0.12 45); display:flex; align-items:center; justify-content:center; font-family:'Baloo 2',sans-serif; font-weight:700; color:white; font-size:14px;">M</div>
+                <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:14px; color:oklch(32% 0.02 60);">Mara Novak (you)</div>
+                <div style="flex:1;"></div>
+                <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:11px; color:oklch(55% 0.13 145);">Ready</div>
+              </div>
+              <div style="display:flex; align-items:center; gap:12px; padding:12px 14px; border-radius:14px; background:oklch(97% 0.01 80); box-shadow:inset 0 0 0 1.5px oklch(88% 0.02 72);">
+                <div style="width:36px; height:36px; border-radius:50%; background:oklch(68% 0.1 250); display:flex; align-items:center; justify-content:center; font-family:'Baloo 2',sans-serif; font-weight:700; color:white; font-size:14px;">A</div>
+                <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:14px; color:oklch(32% 0.02 60);">Alex Rivera</div>
+                <div style="flex:1;"></div>
+                <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:11px; color:oklch(55% 0.13 145);">Ready</div>
+              </div>
+            </div>
+
+            <div style="flex:1;"></div>
+            <div onClick="{{ nav2.goInitiative }}" style="text-align:center; padding:16px 0; border-radius:16px; background:oklch(58% 0.13 145); color:oklch(98% 0 0); font-family:'Baloo 2',sans-serif; font-weight:700; font-size:16px; cursor:pointer; box-shadow:0 3px 0 oklch(45% 0.12 145); margin-bottom:8px;">Start Match</div>
+          </div>
+        </sc-if>
+
+        <!-- ============ JOIN LOBBY ============ -->
+        <sc-if value="{{ nav2.isJoinLobby }}">
+          <div data-screen-label="Join Lobby" style="display:flex; flex-direction:column; height:100%; padding:22px 24px; box-sizing:border-box;">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:24px;">
+              <div onClick="{{ nav2.goMenu }}" style="width:34px; height:34px; border-radius:50%; background:oklch(90% 0.02 72); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px; color:oklch(35% 0.02 60);">‹</div>
+              <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:19px; color:oklch(30% 0.02 60);">Join Lobby</div>
+            </div>
+
+            <input placeholder="Enter lobby code" style="font-family:'Nunito',sans-serif; font-weight:700; font-size:15px; padding:14px 16px; border-radius:14px; border:none; background:oklch(90% 0.02 72); color:oklch(32% 0.02 60); margin-bottom:24px; box-sizing:border-box;">
+
+            <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:12px; color:oklch(50% 0.02 60); margin-bottom:10px;">Open lobbies nearby</div>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+              <div style="display:flex; align-items:center; gap:12px; padding:12px 14px; border-radius:14px; background:oklch(97% 0.01 80); box-shadow:inset 0 0 0 1.5px oklch(88% 0.02 72);">
+                <div style="width:36px; height:36px; border-radius:50%; background:oklch(78% 0.12 145); display:flex; align-items:center; justify-content:center; font-family:'Baloo 2',sans-serif; font-weight:700; color:white; font-size:14px;">S</div>
+                <div>
+                  <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:14px; color:oklch(32% 0.02 60);">Sam's lobby</div>
+                  <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:oklch(50% 0.02 60);">1/2 players</div>
+                </div>
+                <div style="flex:1;"></div>
+                <div onClick="{{ nav2.goInitiative }}" style="padding:8px 16px; border-radius:100px; background:oklch(62% 0.15 35); color:white; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:12px; cursor:pointer;">Join</div>
+              </div>
+              <div style="display:flex; align-items:center; gap:12px; padding:12px 14px; border-radius:14px; background:oklch(97% 0.01 80); box-shadow:inset 0 0 0 1.5px oklch(88% 0.02 72);">
+                <div style="width:36px; height:36px; border-radius:50%; background:oklch(80% 0.13 60); display:flex; align-items:center; justify-content:center; font-family:'Baloo 2',sans-serif; font-weight:700; color:white; font-size:14px;">L</div>
+                <div>
+                  <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:14px; color:oklch(32% 0.02 60);">Leo's lobby</div>
+                  <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:oklch(50% 0.02 60);">1/2 players</div>
+                </div>
+                <div style="flex:1;"></div>
+                <div onClick="{{ nav2.goInitiative }}" style="padding:8px 16px; border-radius:100px; background:oklch(62% 0.15 35); color:white; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:12px; cursor:pointer;">Join</div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ============ PROFILE ============ -->
+        <sc-if value="{{ nav2.isProfile }}">
+          <div data-screen-label="Profile" style="display:flex; flex-direction:column; align-items:center; height:100%; padding:22px 24px; box-sizing:border-box; overflow-y:auto;">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:28px; width:100%;">
+              <div onClick="{{ nav2.goMenu }}" style="width:34px; height:34px; border-radius:50%; background:oklch(90% 0.02 72); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px; color:oklch(35% 0.02 60);">‹</div>
+              <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:19px; color:oklch(30% 0.02 60);">Profile</div>
+            </div>
+
+            <div style="width:96px; height:96px; border-radius:50%; background:oklch(65% 0.12 45); display:flex; align-items:center; justify-content:center; font-family:'Baloo 2',sans-serif; font-weight:800; color:white; font-size:36px; box-shadow:inset 0 -6px 10px rgba(0,0,0,0.2); margin-bottom:16px;">M</div>
+            <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:20px; color:oklch(30% 0.02 60); margin-bottom:32px;">{{ nav2.profileName }}</div>
+
+            <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:10px; width:100%;">
+              <div style="text-align:center; padding:16px 0; border-radius:14px; background:oklch(97% 0.01 80); box-shadow:inset 0 0 0 1.5px oklch(88% 0.02 72);">
+                <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:20px; color:oklch(30% 0.02 60);">24</div>
+                <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:oklch(50% 0.02 60);">Matches</div>
+              </div>
+              <div style="text-align:center; padding:16px 0; border-radius:14px; background:oklch(97% 0.01 80); box-shadow:inset 0 0 0 1.5px oklch(88% 0.02 72);">
+                <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:20px; color:oklch(30% 0.02 60);">15</div>
+                <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:oklch(50% 0.02 60);">Wins</div>
+              </div>
+              <div style="text-align:center; padding:16px 0; border-radius:14px; background:oklch(97% 0.01 80); box-shadow:inset 0 0 0 1.5px oklch(88% 0.02 72);">
+                <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:20px; color:oklch(58% 0.13 145);">63%</div>
+                <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:oklch(50% 0.02 60);">Win rate</div>
+              </div>
+              <div style="text-align:center; padding:16px 0; border-radius:14px; background:oklch(97% 0.01 80); box-shadow:inset 0 0 0 1.5px oklch(88% 0.02 72);">
+                <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:20px; color:oklch(60% 0.15 35);">3</div>
+                <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:oklch(50% 0.02 60);">Win streak</div>
+              </div>
+              <div style="text-align:center; padding:16px 0; border-radius:14px; background:oklch(97% 0.01 80); box-shadow:inset 0 0 0 1.5px oklch(88% 0.02 72);">
+                <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:20px; color:oklch(30% 0.02 60);">6</div>
+                <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:oklch(50% 0.02 60);">Best streak</div>
+              </div>
+              <div style="text-align:center; padding:16px 0; border-radius:14px; background:oklch(97% 0.01 80); box-shadow:inset 0 0 0 1.5px oklch(88% 0.02 72);">
+                <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:20px; color:oklch(30% 0.02 60);">128</div>
+                <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:oklch(50% 0.02 60);">Stars</div>
+              </div>
+              <div style="text-align:center; padding:16px 0; border-radius:14px; background:oklch(97% 0.01 80); box-shadow:inset 0 0 0 1.5px oklch(88% 0.02 72);">
+                <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:20px; color:oklch(30% 0.02 60);">41</div>
+                <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:oklch(50% 0.02 60);">Rows completed</div>
+              </div>
+              <div style="text-align:center; padding:16px 0; border-radius:14px; background:oklch(97% 0.01 80); box-shadow:inset 0 0 0 1.5px oklch(88% 0.02 72);">
+                <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:20px; color:oklch(30% 0.02 60);">9</div>
+                <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:oklch(50% 0.02 60);">Colours completed</div>
+              </div>
+            </div>
+
+            <div style="width:100%; margin-top:28px;">
+              <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:12px; color:oklch(50% 0.02 60); margin-bottom:8px;">Your nemesis</div>
+              <div style="display:flex; align-items:center; gap:12px; padding:14px; border-radius:16px; background:oklch(97% 0.01 80); box-shadow:inset 0 0 0 1.5px oklch(88% 0.02 72);">
+                <div style="width:44px; height:44px; border-radius:50%; background:oklch(68% 0.1 250); display:flex; align-items:center; justify-content:center; font-family:'Baloo 2',sans-serif; font-weight:700; color:white; font-size:17px;">A</div>
+                <div style="flex:1;">
+                  <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:15px; color:oklch(30% 0.02 60);">Alex Rivera</div>
+                  <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:oklch(50% 0.02 60);">Played 21 times · you lead 12–9</div>
+                </div>
+                <div style="width:26px; height:26px; border-radius:50%; background:oklch(80% 0.15 85); display:flex; align-items:center; justify-content:center; font-size:13px;">★</div>
+              </div>
+            </div>
+
+            <div style="flex:1;"></div>
+            <div onClick="{{ nav2.goAvatar }}" style="width:100%; text-align:center; padding:14px 0; border-radius:14px; background:oklch(90% 0.02 72); color:oklch(32% 0.02 60); font-family:'Baloo 2',sans-serif; font-weight:700; font-size:14px; cursor:pointer; box-sizing:border-box;">Personalize avatar</div>
+          </div>
+        </sc-if>
+
+        <!-- ============ PERSONALIZE AVATAR ============ -->
+        <sc-if value="{{ nav2.isAvatar }}">
+          <div data-screen-label="Personalize Avatar" style="display:flex; flex-direction:column; align-items:center; height:100%; padding:22px 24px; box-sizing:border-box; overflow-y:auto;">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:24px; width:100%;">
+              <div onClick="{{ nav2.goProfile }}" style="width:34px; height:34px; border-radius:50%; background:oklch(90% 0.02 72); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px; color:oklch(35% 0.02 60);">‹</div>
+              <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:19px; color:oklch(30% 0.02 60);">Personalize Avatar</div>
+            </div>
+
+            <div style="width:110px; height:110px; border-radius:50%; background:{{ nav2.profileAvatarColor }}; display:flex; align-items:center; justify-content:center; font-family:'Baloo 2',sans-serif; font-weight:800; color:white; font-size:42px; box-shadow:inset 0 -8px 14px rgba(0,0,0,0.2); margin-bottom:28px;">
+              <sc-if value="{{ nav2.hasAvatarIcon }}" hint-placeholder-val="{{ false }}">{{ nav2.profileAvatarIcon }}</sc-if>
+              <sc-if value="{{ nav2.noAvatarIcon }}" hint-placeholder-val="{{ true }}">M</sc-if>
+            </div>
+
+            <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:12px; color:oklch(50% 0.02 60); margin-bottom:12px; width:100%;">Choose an icon</div>
+            <div style="display:flex; flex-wrap:wrap; gap:10px; width:100%; margin-bottom:28px;">
+              <sc-for list="{{ nav2.avatarIconOptions }}" as="ic" hint-placeholder-count="10">
+                <div onClick="{{ ic.onClick }}" style="width:42px; height:42px; border-radius:12px; background:{{ ic.bg }}; box-shadow:{{ ic.ring }}; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:20px;">{{ ic.icon }}</div>
+              </sc-for>
+            </div>
+
+            <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:12px; color:oklch(50% 0.02 60); margin-bottom:12px; width:100%;">Choose a colour</div>
+            <div style="display:flex; flex-wrap:wrap; gap:14px; width:100%;">
+              <sc-for list="{{ nav2.avatarSwatches }}" as="sw" hint-placeholder-count="12">
+                <div onClick="{{ sw.onClick }}" style="width:40px; height:40px; border-radius:50%; background:{{ sw.color }}; box-shadow:{{ sw.ring }}; cursor:pointer;"></div>
+              </sc-for>
+            </div>
+
+            <div style="flex:1;"></div>
+            <div onClick="{{ nav2.goProfile }}" style="width:100%; text-align:center; padding:15px 0; border-radius:14px; background:oklch(58% 0.13 145); color:white; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:15px; cursor:pointer; box-shadow:0 3px 0 oklch(45% 0.12 145); box-sizing:border-box;">Save</div>
+          </div>
+        </sc-if>
+
+        <!-- ============ RULES / SCORING ============ -->
+        <sc-if value="{{ nav2.isRules }}">
+          <div data-screen-label="Scoring Rules" style="display:flex; flex-direction:column; height:100%; padding:22px 24px; box-sizing:border-box;">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:18px;">
+              <div onClick="{{ nav2.backFromRules }}" style="width:34px; height:34px; border-radius:50%; background:oklch(90% 0.02 72); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px; color:oklch(35% 0.02 60);">‹</div>
+              <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:19px; color:oklch(30% 0.02 60);">Scoring rules</div>
+            </div>
+
+            <div style="overflow-y:auto; flex:1; padding-bottom:12px; padding-right:14px; box-sizing:border-box;">
+              <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:11px; letter-spacing:0.4px; text-transform:uppercase; color:oklch(50% 0.02 60); margin-bottom:10px;">Row bonuses — first row to fully mark it</div>
+              <div style="display:flex; flex-direction:column; gap:4px; margin-bottom:24px;">
+                <sc-for list="{{ nav2.rowsTable }}" as="rw" hint-placeholder-count="15">
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <div style="width:16px; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:12px; color:oklch(38% 0.02 60);">{{ rw.letter }}</div>
+                    <div style="flex:1; height:16px; border-radius:6px; background:oklch(90% 0.015 78); position:relative; overflow:hidden; display:flex;">
+                      <div style="height:100%; width:{{ rw.pct1 }}%; background:oklch(72% 0.15 85); border-radius:6px 0 0 6px;"></div>
+                      <div style="height:100%; width:{{ rw.pct2 }}%; background:oklch(80% 0.02 72);"></div>
+                    </div>
+                    <div style="width:52px; text-align:right; font-family:'Nunito',sans-serif; font-weight:800; font-size:11px; color:oklch(45% 0.13 85);">1st +{{ rw.first }}</div>
+                    <div style="width:48px; text-align:right; font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:oklch(52% 0.02 65);">2nd +{{ rw.second }}</div>
+                  </div>
+                </sc-for>
+              </div>
+
+              <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:11px; letter-spacing:0.4px; text-transform:uppercase; color:oklch(50% 0.02 60); margin-bottom:10px;">Colour bonus</div>
+              <div style="padding:14px; border-radius:14px; background:oklch(97% 0.01 80); margin-bottom:24px;">
+                <div style="display:flex; gap:8px; margin-bottom:12px;">
+                  <sc-for list="{{ nav2.colorSwatchesRules }}" as="sw" hint-placeholder-count="5">
+                    <div style="width:28px; height:28px; border-radius:8px; background:{{ sw.hex }}; box-shadow:inset 0 0 0 2px rgba(40,30,20,0.4);"></div>
+                  </sc-for>
+                </div>
+                <div style="display:flex; gap:16px;">
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <div style="width:22px; height:22px; border-radius:50%; background:oklch(72% 0.15 85); display:flex; align-items:center; justify-content:center; font-size:11px;">🥇</div>
+                    <span style="font-family:'Nunito',sans-serif; font-weight:800; font-size:13px; color:oklch(35% 0.02 60);">+{{ nav2.colorRewardFirst }} pts</span>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <div style="width:22px; height:22px; border-radius:50%; background:oklch(85% 0.015 78); display:flex; align-items:center; justify-content:center; font-size:11px;">🥈</div>
+                    <span style="font-family:'Nunito',sans-serif; font-weight:800; font-size:13px; color:oklch(35% 0.02 60);">+{{ nav2.colorRewardSecond }} pts</span>
+                  </div>
+                </div>
+                <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:oklch(52% 0.02 60); margin-top:10px;">Match ends the instant a player completes 2 whole colours.</div>
+              </div>
+
+              <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:11px; letter-spacing:0.4px; text-transform:uppercase; color:oklch(50% 0.02 60); margin-bottom:10px;">Stars &amp; jokers</div>
+              <div style="display:flex; gap:10px; margin-bottom:8px;">
+                <div style="flex:1; padding:14px; border-radius:14px; background:oklch(97% 0.01 80); text-align:center;">
+                  <div style="font-size:22px; margin-bottom:6px;">★</div>
+                  <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:16px; color:oklch(60% 0.16 30);">{{ nav2.starPenalty }} pts</div>
+                  <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:oklch(52% 0.02 60); margin-top:4px;">per uncollected star</div>
+                </div>
+                <div style="flex:1; padding:14px; border-radius:14px; background:oklch(97% 0.01 80); text-align:center;">
+                  <div style="font-size:22px; margin-bottom:6px; transform:rotate(45deg); display:inline-block;">🃏</div>
+                  <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:16px; color:oklch(55% 0.13 145);">+{{ nav2.jokerReward }} pt</div>
+                  <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:oklch(52% 0.02 60); margin-top:4px;">per unused joker</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ============ INITIATIVE DUEL ============ -->
+        <sc-if value="{{ nav2.isInitiative }}">
+          <div data-screen-label="Initiative Duel" style="display:flex; flex-direction:column; align-items:center; height:100%; padding:60px 26px 40px 26px; box-sizing:border-box;">
+            <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:22px; color:oklch(30% 0.02 60); margin-bottom:4px;">Initiative Duel</div>
+            <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:12.5px; color:oklch(50% 0.02 60); margin-bottom:44px; text-align:center;">Both players roll — highest number starts the match.</div>
+
+            <div style="display:flex; align-items:center; gap:22px; margin-bottom:40px;">
+              <div style="display:flex; flex-direction:column; align-items:center; gap:10px;">
+                <div style="width:34px; height:34px; border-radius:50%; background:oklch(65% 0.12 45); display:flex; align-items:center; justify-content:center; font-family:'Baloo 2',sans-serif; font-weight:700; color:white; font-size:14px;">M</div>
+                <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:12px; color:oklch(32% 0.02 60);">You</div>
+                <div style="width:74px; height:74px; border-radius:16px; background:oklch(97% 0.01 80); box-shadow:inset 0 -6px 10px rgba(0,0,0,0.1), inset 0 4px 6px rgba(255,255,255,0.7); display:grid; grid-template-columns:repeat(3,1fr); grid-template-rows:repeat(3,1fr); padding:13px; box-sizing:border-box; animation:{{ nav2.initDiceAnim }};">
+                  <sc-for list="{{ nav2.initMyPipStyle }}" as="on" hint-placeholder-count="9">
+                    <div style="width:9px; height:9px; border-radius:50%; margin:auto; background:{{ on }};"></div>
+                  </sc-for>
+                </div>
+              </div>
+
+              <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:20px; color:oklch(55% 0.02 65);">VS</div>
+
+              <div style="display:flex; flex-direction:column; align-items:center; gap:10px;">
+                <div style="width:34px; height:34px; border-radius:50%; background:oklch(68% 0.1 250); display:flex; align-items:center; justify-content:center; font-family:'Baloo 2',sans-serif; font-weight:700; color:white; font-size:14px;">A</div>
+                <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:12px; color:oklch(32% 0.02 60);">Alex</div>
+                <div style="width:74px; height:74px; border-radius:16px; background:oklch(97% 0.01 80); box-shadow:inset 0 -6px 10px rgba(0,0,0,0.1), inset 0 4px 6px rgba(255,255,255,0.7); display:grid; grid-template-columns:repeat(3,1fr); grid-template-rows:repeat(3,1fr); padding:13px; box-sizing:border-box; animation:{{ nav2.initDiceAnim }};">
+                  <sc-for list="{{ nav2.initOppPipStyle }}" as="on" hint-placeholder-count="9">
+                    <div style="width:9px; height:9px; border-radius:50%; margin:auto; background:{{ on }};"></div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+
+            <div style="font-family:'Baloo 2',sans-serif; font-weight:800; font-size:18px; color:{{ nav2.initResultColor }}; min-height:26px; margin-bottom:24px;">{{ nav2.initResultText }}</div>
+
+            <div style="flex:1;"></div>
+            <div onClick="{{ nav2.initButtonAction }}" style="width:100%; text-align:center; padding:16px 0; border-radius:16px; background:oklch(62% 0.15 35); color:oklch(98% 0 0); font-family:'Baloo 2',sans-serif; font-weight:700; font-size:16px; cursor:pointer; box-shadow:0 3px 0 oklch(48% 0.14 35); box-sizing:border-box;">{{ nav2.initButtonLabel }}</div>
+          </div>
+        </sc-if>
+
+        <!-- ============ GAME ============ -->
+        <sc-if value="{{ nav2.isGame }}">
+          <div data-screen-label="Match" style="position:relative; display:flex; flex-direction:column; height:100%;">
+
+            <div style="position:absolute; left:0; right:0; top:0; z-index:20; display:flex; justify-content:center; padding-top:14px; pointer-events:none; transform:{{ nav2.toastTransform }}; transition:transform 0.35s ease;">
+              <div style="pointer-events:auto; max-width:320px; padding:11px 18px; border-radius:100px; background:oklch(28% 0.02 60); color:oklch(97% 0.01 80); font-family:'Nunito',sans-serif; font-weight:700; font-size:12.5px; box-shadow:0 8px 20px rgba(0,0,0,0.25); display:flex; align-items:center; gap:8px;">
+                <span style="color:oklch(78% 0.14 85); font-size:14px;">★</span>{{ nav2.toastMsg }}
+              </div>
+            </div>
+
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 16px 6px 16px;">
+              <div onClick="{{ nav2.goMenu }}" style="width:30px; height:30px; border-radius:50%; background:oklch(90% 0.02 72); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:16px; color:oklch(35% 0.02 60); flex-shrink:0;">‹</div>
+
+              <div style="display:flex; align-items:center; gap:1px; background:oklch(90% 0.02 72); border-radius:100px; padding:3px;">
+                <div onClick="{{ nav2.toggleOpponentView }}" style="display:flex; align-items:center; gap:6px; padding:5px 12px 5px 5px; border-radius:100px; background:{{ nav2.myBoardTabBg }}; cursor:pointer;">
+                  <div style="width:22px; height:22px; border-radius:50%; background:oklch(65% 0.12 45); display:flex; align-items:center; justify-content:center; font-family:'Baloo 2',sans-serif; font-weight:700; color:white; font-size:11px;">M</div>
+                  <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:12px; color:{{ nav2.myBoardTabColor }};">You</div>
+                </div>
+                <div onClick="{{ nav2.toggleOpponentView }}" style="display:flex; align-items:center; gap:6px; padding:5px 12px 5px 5px; border-radius:100px; background:{{ nav2.oppBoardTabBg }}; cursor:pointer;">
+                  <div style="width:22px; height:22px; border-radius:50%; background:oklch(68% 0.1 250); display:flex; align-items:center; justify-content:center; font-family:'Baloo 2',sans-serif; font-weight:700; color:white; font-size:11px;">A</div>
+                  <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:12px; color:{{ nav2.oppBoardTabColor }};">Alex</div>
+                </div>
+              </div>
+
+              <div style="display:flex; gap:6px; flex-shrink:0;">
+                <div onClick="{{ nav2.triggerOpponentMove }}" style="width:30px; height:30px; border-radius:50%; background:oklch(90% 0.02 72); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:14px;" title="Dev: simulate opponent move">🎲</div>
+                <div onClick="{{ nav2.goRules }}" style="width:30px; height:30px; border-radius:50%; background:oklch(90% 0.02 72); display:flex; align-items:center; justify-content:center; cursor:pointer; font-family:'Baloo 2',sans-serif; font-weight:700; font-size:14px; color:oklch(35% 0.02 60);">i</div>
+                <div onClick="{{ a.onToggleSettings }}" style="width:30px; height:30px; border-radius:50%; background:oklch(90% 0.02 72); display:flex; align-items:center; justify-content:center; cursor:pointer;">
+                  <div style="width:14px; height:14px; border-radius:50%; border:2.5px solid oklch(35% 0.02 60);"></div>
+                </div>
+              </div>
+            </div>
+
+            <div onClick="{{ nav2.toggleStatus }}" style="display:flex; align-items:center; justify-content:center; gap:8px; margin:10px 16px 4px 16px; padding:8px 12px 12px 12px; border-radius:14px; background:oklch(90% 0.02 72); cursor:pointer;">
+              <sc-for list="{{ nav2.raceChips }}" as="rc" hint-placeholder-count="5">
+                <div style="position:relative; width:22px; height:22px; border-radius:6px; background:{{ rc.hex }}; opacity:{{ rc.opacity }}; box-shadow:inset 0 0 0 1.5px rgba(40,30,20,0.35);">
+                  <sc-if value="{{ rc.badgeText }}" hint-placeholder-val="{{ false }}">
+                    <div style="position:absolute; bottom:-5px; left:50%; transform:translateX(-50%); background:{{ rc.badgeBg }}; border-radius:5px; padding:0 3px; font-family:'Nunito',sans-serif; font-weight:800; font-size:7.5px; color:oklch(30% 0.02 60); white-space:nowrap; box-shadow:0 0 0 1px oklch(97% 0.01 80);">{{ rc.badgeText }}</div>
+                  </sc-if>
+                </div>
+              </sc-for>
+              <span style="font-family:'Nunito',sans-serif; font-weight:700; font-size:10.5px; color:oklch(50% 0.02 60); margin-left:4px;">{{ nav2.activeCompletedCount }}/2 completed · details</span>
+            </div>
+
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:6px 18px 4px 18px;">
+              <div style="display:flex; align-items:center; gap:6px;">
+                <div style="display:flex; gap:3px; align-items:center;">
+                  <sc-for list="{{ nav2.activeJokerPips }}" as="pip" hint-placeholder-count="8">
+                    <div style="width:10px; height:10px; transform:rotate(45deg); background:{{ pip.color }}; box-shadow:inset 0 0 0 1.5px oklch(45% 0.02 60);"></div>
+                  </sc-for>
+                </div>
+                <span style="font-family:'Nunito',sans-serif; font-weight:700; font-size:11px; color:oklch(50% 0.02 60);">jokers</span>
+              </div>
+              <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:12px; color:oklch(40% 0.02 60);">{{ nav2.activeLabel }}</div>
+              <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:12px; color:oklch(40% 0.02 60); display:flex; align-items:center; gap:4px;">
+                <span style="color:oklch(70% 0.16 85); font-size:14px;">★</span>{{ nav2.activeStarsCollected }}/{{ nav2.activeStarsTotal }}
+              </div>
+            </div>
+
+            <div style="flex:1; display:flex; align-items:center; justify-content:center; padding:2px 10px; min-height:0; overflow-y:auto;">
+              <div style="display:flex; flex-direction:column; gap:2px;">
+                <sc-for list="{{ nav2.activeBoard }}" as="row" hint-placeholder-count="15">
+                  <div style="display:flex; align-items:center; gap:5px; justify-content:center;">
+                    <div style="width:20px; height:20px; border-radius:6px; background:{{ row.letterBg }}; display:flex; align-items:center; justify-content:center; font-family:'Baloo 2',sans-serif; font-size:12px; font-weight:700; color:{{ row.letterColor }};">{{ row.letter }}</div>
+                    <div style="display:flex; gap:3px;">
+                      <sc-for list="{{ row.cells }}" as="cell" hint-placeholder-count="7">
+                        <div onClick="{{ cell.onClick }}" style="{{ cell.style }}">
+                          <sc-if value="{{ cell.hasStar }}">
+                            <span style="font-size:16px; color:oklch(30% 0.02 60); opacity:0.75;">★</span>
+                          </sc-if>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <sc-if value="{{ nav2.viewingOpponent }}" hint-placeholder-val="{{ false }}">
+              <div style="text-align:center; padding:16px 0 28px 0; font-family:'Nunito',sans-serif; font-weight:700; font-size:12px; color:oklch(50% 0.02 60);">Viewing Alex's board — read only. Tap "My board" to return.</div>
+            </sc-if>
+
+            <div style="margin:6px 8px 0 8px; padding:8px 18px 6px 18px; background:oklch(90% 0.02 72); border-radius:22px 22px 0 0; box-sizing:border-box; display:{{ nav2.diceTrayDisplay }};">
+              <div style="display:flex; justify-content:center; gap:18px; padding-top:8px;">
+                <div style="display:flex; gap:8px;">
+                  <sc-for list="{{ game.colorDice }}" as="die" hint-placeholder-count="3">
+                    <div onClick="{{ die.onClick }}" style="{{ die.style }}">
+                      <sc-if value="{{ die.isWild }}">🃏</sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="display:flex; gap:8px;">
+                  <sc-for list="{{ game.numberDice }}" as="die" hint-placeholder-count="3">
+                    <div onClick="{{ die.onClick }}" style="{{ die.style }}">
+                      <sc-for list="{{ die.pips }}" as="on" hint-placeholder-count="9">
+                        <div style="width:5px; height:5px; border-radius:50%; margin:auto; background:{{ on }};"></div>
+                      </sc-for>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="display:flex; gap:8px; padding:10px 0 16px 0;">
+                <div onClick="{{ game.onPass }}" style="flex:0.8; text-align:center; padding:13px 0; border-radius:100px; background:oklch(97% 0.01 80); color:oklch(35% 0.02 60); font-family:'Baloo 2',sans-serif; font-weight:700; font-size:14px; cursor:pointer; box-shadow:inset 0 0 0 2px oklch(78% 0.02 70);">Pass</div>
+                <div onClick="{{ game.onRoll }}" style="flex:1.2; text-align:center; padding:13px 0; border-radius:100px; background:oklch(62% 0.15 35); color:oklch(98% 0 0); font-family:'Baloo 2',sans-serif; font-weight:700; font-size:15px; cursor:pointer; box-shadow:0 3px 0 oklch(48% 0.14 35);">Roll dice</div>
+                <div onClick="{{ game.onConfirm }}" style="flex:0.9; text-align:center; padding:13px 0; border-radius:100px; background:{{ game.confirmBg }}; color:oklch(98% 0 0); font-family:'Baloo 2',sans-serif; font-weight:700; font-size:14px; cursor:pointer; box-shadow:{{ game.confirmShadow }};">OK</div>
+              </div>
+            </div>
+
+            <sc-if value="{{ nav2.statusOpen }}">
+              <div style="position:absolute; inset:0; background:rgba(30,22,15,0.45); display:flex; align-items:center; justify-content:center; z-index:30;">
+                <div style="width:300px; max-height:640px; overflow-y:auto; background:oklch(96% 0.015 78); border-radius:20px; padding:20px; box-shadow:0 20px 40px rgba(0,0,0,0.3);">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:17px; color:oklch(28% 0.02 60);">Game status</div>
+                    <div onClick="{{ nav2.toggleStatus }}" style="width:26px; height:26px; border-radius:50%; background:oklch(88% 0.02 70); display:flex; align-items:center; justify-content:center; cursor:pointer; font-weight:700; color:oklch(35% 0.02 60);">×</div>
+                  </div>
+                  <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:12px; color:oklch(50% 0.02 60); margin-bottom:16px;">The match ends when a player completes 2 whole colours. {{ nav2.activeLabel }}: {{ nav2.activeCompletedCount }}/2 completed.</div>
+                  <div style="display:flex; flex-direction:column; gap:12px;">
+                    <sc-for list="{{ nav2.activeColorProgress }}" as="cp" hint-placeholder-count="6">
+                      <div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                          <div style="display:flex; align-items:center; gap:8px;">
+                            <div style="width:14px; height:14px; border-radius:4px; background:{{ cp.hex }};"></div>
+                            <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:12px; color:oklch(35% 0.02 60); text-transform:capitalize;">{{ cp.color }}</div>
+                          </div>
+                          <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:11px; color:oklch(50% 0.02 60);">{{ cp.marked }}/{{ cp.total }}</div>
+                        </div>
+                        <div style="height:8px; border-radius:5px; background:oklch(88% 0.015 75); position:relative; overflow:hidden;">
+                          <div style="position:absolute; left:0; top:0; bottom:0; width:{{ cp.pct }}%; background:{{ cp.hex }};"></div>
+                        </div>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <div onClick="{{ nav2.goRules }}" style="text-align:center; margin-top:18px; padding:10px 0; border-radius:12px; background:oklch(88% 0.02 70); font-family:'Nunito',sans-serif; font-weight:800; font-size:12px; color:oklch(35% 0.02 60); cursor:pointer;">View full scoring rules</div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ a.settingsOpen }}">
+              <div style="position:absolute; inset:0; background:rgba(30,22,15,0.45); display:flex; align-items:center; justify-content:center;">
+                <div style="width:280px; background:oklch(96% 0.015 78); border-radius:20px; padding:20px; box-shadow:0 20px 40px rgba(0,0,0,0.3);">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+                    <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:17px; color:oklch(28% 0.02 60);">Settings</div>
+                    <div onClick="{{ a.onToggleSettings }}" style="width:26px; height:26px; border-radius:50%; background:oklch(88% 0.02 70); display:flex; align-items:center; justify-content:center; cursor:pointer; font-weight:700; color:oklch(35% 0.02 60);">×</div>
+                  </div>
+                  <div style="text-align:center; padding:10px 0; border-radius:12px; background:oklch(88% 0.02 70); font-family:'Nunito',sans-serif; font-weight:800; font-size:13px; color:oklch(35% 0.02 60); cursor:pointer;">Quit match</div>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+      </div>
+    </div>
+
+  </div>
+  <div style="font-family:'Nunito',sans-serif; font-size:12px; color:oklch(50% 0.02 60); max-width:600px;">Menu → Create/Join Lobby → Start → Match. In-match: tap the opponent chip or the board tabs to switch to Alex's read-only board; the dashed pill is a dev-only trigger for the "opponent made a move" toast.</div>
+</section>
+
+<section id="turn1" style="padding:40px; display:flex; flex-direction:column; gap:16px; align-items:flex-start;">
+  <div style="font-family:'Baloo 2',sans-serif; font-size:22px; font-weight:700; color:oklch(30% 0.02 60);">Plenus — board UI, 3 layout options</div>
+  <div style="display:flex; gap:36px; flex-wrap:wrap; align-items:flex-start;">
+
+    <!-- ============ VARIANT 1a ============ -->
+    <div id="1a" style="display:flex; flex-direction:column; gap:10px; align-items:center;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:14px; background:oklch(30% 0.02 60); color:oklch(97% 0.01 80); padding:3px 10px; border-radius:100px;">1a</span>
+        <span style="font-family:'Nunito',sans-serif; font-size:13px; color:oklch(45% 0.02 60);">Slim header · dice strip below board</span>
+      </div>
+
+      <div data-screen-label="1a - Board Slim Header" style="position:relative; width:390px; height:844px; background:oklch(95% 0.02 78); border-radius:44px; box-shadow:0 22px 50px rgba(60,40,20,0.28), inset 0 0 0 8px oklch(88% 0.02 70); overflow:hidden; display:flex; flex-direction:column;">
+
+        <!-- header -->
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:18px 18px 8px 18px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div style="width:40px; height:40px; border-radius:50%; background:oklch(65% 0.12 45); display:flex; align-items:center; justify-content:center; font-family:'Baloo 2',sans-serif; font-weight:700; color:oklch(98% 0 0); font-size:17px; box-shadow:inset 0 -3px 5px rgba(0,0,0,0.2);">M</div>
+            <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:15px; color:oklch(28% 0.02 60);">Mara Novak</div>
+          </div>
+          <div onClick="{{ a.onToggleSettings }}" style="width:36px; height:36px; border-radius:50%; background:oklch(90% 0.02 70); display:flex; align-items:center; justify-content:center; cursor:pointer; box-shadow:inset 0 0 0 2px oklch(80% 0.02 70);">
+            <div style="width:16px; height:16px; border-radius:50%; border:3px solid oklch(35% 0.02 60);"></div>
+          </div>
+        </div>
+
+        <!-- status strip -->
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:2px 18px 10px 18px;">
+          <div style="display:flex; gap:3px; align-items:center;">
+            <sc-for list="{{ a.jokerPips }}" as="pip" hint-placeholder-count="8">
+              <div style="width:11px; height:11px; transform:rotate(45deg); background:{{ pip.color }}; box-shadow:inset 0 0 0 1.5px oklch(45% 0.02 60);"></div>
+            </sc-for>
+          </div>
+          <div style="font-family:'Nunito',sans-serif; font-weight:800; font-size:13px; color:oklch(40% 0.02 60); display:flex; align-items:center; gap:4px;">
+            <span style="color:oklch(70% 0.16 85); font-size:15px;">★</span>{{ a.starsCollected }}/{{ a.starsTotal }}
+          </div>
+        </div>
+
+        <!-- board -->
+        <div style="flex:1; display:flex; align-items:flex-start; justify-content:center; padding:4px 12px;">
+          <div style="display:flex; flex-direction:column; gap:2px;">
+            <sc-for list="{{ a.board }}" as="row" hint-placeholder-count="15">
+              <div style="display:flex; align-items:center; gap:4px;">
+                <div style="width:13px; font-family:'Baloo 2',sans-serif; font-size:11px; font-weight:700; color:oklch(42% 0.02 60); text-align:center;">{{ row.letter }}</div>
+                <div style="display:flex; gap:2px;">
+                  <sc-for list="{{ row.cells }}" as="cell" hint-placeholder-count="7">
+                    <div onClick="{{ cell.onClick }}" style="{{ cell.style }}">
+                      <sc-if value="{{ cell.hasStar }}">
+                        <span style="font-size:15px; color:oklch(30% 0.02 60); opacity:0.75;">★</span>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+                <sc-if value="{{ row.statusLabel }}">
+                  <div style="width:42px; height:16px; border-radius:5px; background:{{ row.statusColor }}; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:800; color:oklch(30% 0.02 60); font-family:'Nunito',sans-serif;">{{ row.statusLabel }}</div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <!-- dice tray -->
+        <div style="padding:10px 18px 6px 18px;">
+          <div style="display:flex; justify-content:center; gap:10px; margin-bottom:8px;">
+            <sc-for list="{{ a.colorDice }}" as="die" hint-placeholder-count="3">
+              <div onClick="{{ die.onClick }}" style="{{ die.style }}"></div>
+            </sc-for>
+            <div style="width:1px; background:oklch(80% 0.02 70); margin:2px 2px;"></div>
+            <sc-for list="{{ a.numberDice }}" as="die" hint-placeholder-count="3">
+              <div onClick="{{ die.onClick }}" style="{{ die.style }}">
+                <sc-for list="{{ die.pips }}" as="on" hint-placeholder-count="9">
+                  <div style="width:6px; height:6px; border-radius:50%; margin:auto; background:{{ on }};"></div>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display:flex; justify-content:center; gap:8px; margin-bottom:8px;">
+            <div onClick="{{ a.onToggleIgnoreColor }}" style="font-family:'Nunito',sans-serif; font-size:11px; font-weight:700; padding:5px 10px; border-radius:100px; cursor:pointer; background:{{ a.ignoreColorBg }}; color:oklch(30% 0.02 60);">Joker: skip colour</div>
+            <div onClick="{{ a.onToggleIgnoreNumber }}" style="font-family:'Nunito',sans-serif; font-size:11px; font-weight:700; padding:5px 10px; border-radius:100px; cursor:pointer; background:{{ a.ignoreNumberBg }}; color:oklch(30% 0.02 60);">Joker: skip number</div>
+          </div>
+        </div>
+
+        <!-- buttons -->
+        <div style="display:flex; gap:8px; padding:0 18px 20px 18px;">
+          <div onClick="{{ a.onRoll }}" style="flex:1.1; text-align:center; padding:13px 0; border-radius:14px; background:oklch(62% 0.15 35); color:oklch(98% 0 0); font-family:'Baloo 2',sans-serif; font-weight:700; font-size:15px; cursor:pointer; box-shadow:0 3px 0 oklch(48% 0.14 35);">Roll</div>
+          <div onClick="{{ a.onConfirm }}" style="flex:1.1; text-align:center; padding:13px 0; border-radius:14px; background:{{ a.confirmBg }}; color:oklch(98% 0 0); font-family:'Baloo 2',sans-serif; font-weight:700; font-size:15px; cursor:pointer; box-shadow:{{ a.confirmShadow }};">Confirm</div>
+          <div onClick="{{ a.onPass }}" style="flex:0.9; text-align:center; padding:13px 0; border-radius:14px; background:transparent; color:oklch(35% 0.02 60); font-family:'Baloo 2',sans-serif; font-weight:700; font-size:15px; cursor:pointer; box-shadow:inset 0 0 0 2px oklch(70% 0.02 70);">Pass</div>
+        </div>
+
+        <sc-if value="{{ a.settingsOpen }}">
+          <div style="position:absolute; inset:0; background:rgba(30,22,15,0.45); display:flex; align-items:center; justify-content:center;">
+            <div style="width:280px; background:oklch(96% 0.015 78); border-radius:20px; padding:20px; box-shadow:0 20px 40px rgba(0,0,0,0.3);">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+                <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:17px; color:oklch(28% 0.02 60);">Settings</div>
+                <div onClick="{{ a.onToggleSettings }}" style="width:26px; height:26px; border-radius:50%; background:oklch(88% 0.02 70); display:flex; align-items:center; justify-content:center; cursor:pointer; font-weight:700; color:oklch(35% 0.02 60);">×</div>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <span style="font-family:'Nunito',sans-serif; font-weight:700; font-size:14px; color:oklch(35% 0.02 60);">Sound</span>
+                  <div onClick="{{ a.onToggleSound }}" style="width:42px; height:24px; border-radius:100px; background:{{ a.soundTrackBg }}; position:relative; cursor:pointer;">
+                    <div style="width:18px; height:18px; border-radius:50%; background:white; position:absolute; top:3px; left:{{ a.soundThumbLeft }}; box-shadow:0 1px 2px rgba(0,0,0,0.3);"></div>
+                  </div>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <span style="font-family:'Nunito',sans-serif; font-weight:700; font-size:14px; color:oklch(35% 0.02 60);">Music</span>
+                  <div onClick="{{ a.onToggleMusic }}" style="width:42px; height:24px; border-radius:100px; background:{{ a.musicTrackBg }}; position:relative; cursor:pointer;">
+                    <div style="width:18px; height:18px; border-radius:50%; background:white; position:absolute; top:3px; left:{{ a.musicThumbLeft }}; box-shadow:0 1px 2px rgba(0,0,0,0.3);"></div>
+                  </div>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <span style="font-family:'Nunito',sans-serif; font-weight:700; font-size:14px; color:oklch(35% 0.02 60);">Vibration</span>
+                  <div onClick="{{ a.onToggleVibration }}" style="width:42px; height:24px; border-radius:100px; background:{{ a.vibrationTrackBg }}; position:relative; cursor:pointer;">
+                    <div style="width:18px; height:18px; border-radius:50%; background:white; position:absolute; top:3px; left:{{ a.vibrationThumbLeft }}; box-shadow:0 1px 2px rgba(0,0,0,0.3);"></div>
+                  </div>
+                </div>
+                <div style="text-align:center; margin-top:8px; padding:10px 0; border-radius:12px; background:oklch(88% 0.02 70); font-family:'Nunito',sans-serif; font-weight:800; font-size:13px; color:oklch(35% 0.02 60); cursor:pointer;">Quit match</div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+
+    <!-- ============ VARIANT 1b ============ -->
+    <div id="1b" style="display:flex; flex-direction:column; gap:10px; align-items:center;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:14px; background:oklch(30% 0.02 60); color:oklch(97% 0.01 80); padding:3px 10px; border-radius:100px;">1b</span>
+        <span style="font-family:'Nunito',sans-serif; font-size:13px; color:oklch(45% 0.02 60);">Row-status rail · dial-style dice</span>
+      </div>
+
+      <div data-screen-label="1b - Board With Rail" style="position:relative; width:390px; height:844px; background:oklch(95% 0.02 78); border-radius:44px; box-shadow:0 22px 50px rgba(60,40,20,0.28), inset 0 0 0 8px oklch(88% 0.02 70); overflow:hidden; display:flex; flex-direction:column;">
+
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:18px 18px 4px 18px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div style="width:40px; height:40px; border-radius:12px; background:oklch(65% 0.12 45); display:flex; align-items:center; justify-content:center; font-family:'Baloo 2',sans-serif; font-weight:700; color:oklch(98% 0 0); font-size:17px; box-shadow:inset 0 -3px 5px rgba(0,0,0,0.2);">M</div>
+            <div>
+              <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:15px; color:oklch(28% 0.02 60);">Mara Novak</div>
+              <div style="display:flex; gap:6px; align-items:center; font-family:'Nunito',sans-serif; font-weight:800; font-size:11px; color:oklch(45% 0.02 60);">
+                <span style="color:oklch(70% 0.16 85); font-size:13px;">★</span>{{ b.starsCollected }}/{{ b.starsTotal }} stars
+              </div>
+            </div>
+          </div>
+          <div onClick="{{ b.onToggleSettings }}" style="width:36px; height:36px; border-radius:12px; background:oklch(90% 0.02 70); display:flex; align-items:center; justify-content:center; cursor:pointer; box-shadow:inset 0 0 0 2px oklch(80% 0.02 70);">
+            <div style="width:16px; height:16px; border-radius:50%; border:3px solid oklch(35% 0.02 60);"></div>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:3px; padding:8px 18px 6px 18px;">
+          <sc-for list="{{ b.jokerPips }}" as="pip" hint-placeholder-count="8">
+            <div style="flex:1; height:9px; border-radius:5px; background:{{ pip.color }}; box-shadow:inset 0 0 0 1.5px oklch(45% 0.02 60);"></div>
+          </sc-for>
+        </div>
+
+        <div style="flex:1; display:flex; align-items:flex-start; justify-content:center; padding:4px 10px;">
+          <div style="display:flex; flex-direction:column; gap:2px;">
+            <sc-for list="{{ b.board }}" as="row" hint-placeholder-count="15">
+              <div style="display:flex; align-items:center; gap:4px;">
+                <div style="width:13px; font-family:'Baloo 2',sans-serif; font-size:11px; font-weight:700; color:oklch(42% 0.02 60); text-align:center;">{{ row.letter }}</div>
+                <div style="display:flex; gap:2px;">
+                  <sc-for list="{{ row.cells }}" as="cell" hint-placeholder-count="7">
+                    <div onClick="{{ cell.onClick }}" style="{{ cell.style }}">
+                      <sc-if value="{{ cell.hasStar }}">
+                        <span style="font-size:14px; color:oklch(30% 0.02 60); opacity:0.75;">★</span>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="width:42px; height:16px; border-radius:8px; background:{{ row.statusColor }}; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:800; color:oklch(30% 0.02 60); font-family:'Nunito',sans-serif;">{{ row.statusLabel }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="padding:8px 18px 6px 18px; background:oklch(90% 0.02 72); border-radius:22px 22px 0 0; margin:0 8px;">
+          <div style="display:flex; justify-content:center; gap:18px; padding-top:8px;">
+            <div style="display:flex; gap:8px;">
+              <sc-for list="{{ b.colorDice }}" as="die" hint-placeholder-count="3">
+                <div onClick="{{ die.onClick }}" style="{{ die.style }}"></div>
+              </sc-for>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <sc-for list="{{ b.numberDice }}" as="die" hint-placeholder-count="3">
+                <div onClick="{{ die.onClick }}" style="{{ die.style }}">
+                  <sc-for list="{{ die.pips }}" as="on" hint-placeholder-count="9">
+                    <div style="width:5px; height:5px; border-radius:50%; margin:auto; background:{{ on }};"></div>
+                  </sc-for>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="display:flex; justify-content:center; gap:8px; margin:10px 0 12px 0;">
+            <div onClick="{{ b.onToggleIgnoreColor }}" style="font-family:'Nunito',sans-serif; font-size:11px; font-weight:700; padding:5px 10px; border-radius:100px; cursor:pointer; background:{{ b.ignoreColorBg }}; color:oklch(30% 0.02 60);">Skip colour</div>
+            <div onClick="{{ b.onToggleIgnoreNumber }}" style="font-family:'Nunito',sans-serif; font-size:11px; font-weight:700; padding:5px 10px; border-radius:100px; cursor:pointer; background:{{ b.ignoreNumberBg }}; color:oklch(30% 0.02 60);">Skip number</div>
+          </div>
+          <div style="display:flex; gap:8px; padding-bottom:20px;">
+            <div onClick="{{ b.onPass }}" style="flex:0.8; text-align:center; padding:13px 0; border-radius:100px; background:oklch(97% 0.01 80); color:oklch(35% 0.02 60); font-family:'Baloo 2',sans-serif; font-weight:700; font-size:14px; cursor:pointer; box-shadow:inset 0 0 0 2px oklch(78% 0.02 70);">Pass</div>
+            <div onClick="{{ b.onRoll }}" style="flex:1.2; text-align:center; padding:13px 0; border-radius:100px; background:oklch(62% 0.15 35); color:oklch(98% 0 0); font-family:'Baloo 2',sans-serif; font-weight:700; font-size:15px; cursor:pointer; box-shadow:0 3px 0 oklch(48% 0.14 35);">Roll dice</div>
+            <div onClick="{{ b.onConfirm }}" style="flex:0.9; text-align:center; padding:13px 0; border-radius:100px; background:{{ b.confirmBg }}; color:oklch(98% 0 0); font-family:'Baloo 2',sans-serif; font-weight:700; font-size:14px; cursor:pointer; box-shadow:{{ b.confirmShadow }};">OK</div>
+          </div>
+        </div>
+
+        <sc-if value="{{ b.settingsOpen }}">
+          <div style="position:absolute; inset:0; background:rgba(30,22,15,0.45); display:flex; align-items:center; justify-content:center;">
+            <div style="width:280px; background:oklch(96% 0.015 78); border-radius:20px; padding:20px; box-shadow:0 20px 40px rgba(0,0,0,0.3);">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+                <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:17px; color:oklch(28% 0.02 60);">Settings</div>
+                <div onClick="{{ b.onToggleSettings }}" style="width:26px; height:26px; border-radius:50%; background:oklch(88% 0.02 70); display:flex; align-items:center; justify-content:center; cursor:pointer; font-weight:700; color:oklch(35% 0.02 60);">×</div>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <span style="font-family:'Nunito',sans-serif; font-weight:700; font-size:14px; color:oklch(35% 0.02 60);">Sound</span>
+                  <div onClick="{{ b.onToggleSound }}" style="width:42px; height:24px; border-radius:100px; background:{{ b.soundTrackBg }}; position:relative; cursor:pointer;">
+                    <div style="width:18px; height:18px; border-radius:50%; background:white; position:absolute; top:3px; left:{{ b.soundThumbLeft }}; box-shadow:0 1px 2px rgba(0,0,0,0.3);"></div>
+                  </div>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <span style="font-family:'Nunito',sans-serif; font-weight:700; font-size:14px; color:oklch(35% 0.02 60);">Music</span>
+                  <div onClick="{{ b.onToggleMusic }}" style="width:42px; height:24px; border-radius:100px; background:{{ b.musicTrackBg }}; position:relative; cursor:pointer;">
+                    <div style="width:18px; height:18px; border-radius:50%; background:white; position:absolute; top:3px; left:{{ b.musicThumbLeft }}; box-shadow:0 1px 2px rgba(0,0,0,0.3);"></div>
+                  </div>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <span style="font-family:'Nunito',sans-serif; font-weight:700; font-size:14px; color:oklch(35% 0.02 60);">Vibration</span>
+                  <div onClick="{{ b.onToggleVibration }}" style="width:42px; height:24px; border-radius:100px; background:{{ b.vibrationTrackBg }}; position:relative; cursor:pointer;">
+                    <div style="width:18px; height:18px; border-radius:50%; background:white; position:absolute; top:3px; left:{{ b.vibrationThumbLeft }}; box-shadow:0 1px 2px rgba(0,0,0,0.3);"></div>
+                  </div>
+                </div>
+                <div style="text-align:center; margin-top:8px; padding:10px 0; border-radius:12px; background:oklch(88% 0.02 70); font-family:'Nunito',sans-serif; font-weight:800; font-size:13px; color:oklch(35% 0.02 60); cursor:pointer;">Quit match</div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+
+    <!-- ============ VARIANT 1c ============ -->
+    <div id="1c" style="display:flex; flex-direction:column; gap:10px; align-items:center;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:14px; background:oklch(30% 0.02 60); color:oklch(97% 0.01 80); padding:3px 10px; border-radius:100px;">1c</span>
+        <span style="font-family:'Nunito',sans-serif; font-size:13px; color:oklch(45% 0.02 60);">Felt tray · stacked primary Roll</span>
+      </div>
+
+      <div data-screen-label="1c - Felt Tray" style="position:relative; width:390px; height:844px; background:oklch(95% 0.02 78); border-radius:44px; box-shadow:0 22px 50px rgba(60,40,20,0.28), inset 0 0 0 8px oklch(88% 0.02 70); overflow:hidden; display:flex; flex-direction:column;">
+
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:18px 18px 6px 18px;">
+          <div style="display:flex; align-items:center; gap:10px; background:oklch(90% 0.02 72); border-radius:100px; padding:5px 14px 5px 5px;">
+            <div style="width:32px; height:32px; border-radius:50%; background:oklch(65% 0.12 45); display:flex; align-items:center; justify-content:center; font-family:'Baloo 2',sans-serif; font-weight:700; color:oklch(98% 0 0); font-size:14px;">M</div>
+            <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:14px; color:oklch(28% 0.02 60);">Mara</div>
+          </div>
+          <div onClick="{{ c.onToggleSettings }}" style="width:36px; height:36px; border-radius:50%; background:oklch(90% 0.02 70); display:flex; align-items:center; justify-content:center; cursor:pointer;">
+            <div style="width:16px; height:16px; border-radius:50%; border:3px solid oklch(35% 0.02 60);"></div>
+          </div>
+        </div>
+
+        <div style="margin:4px 18px 8px 18px; height:8px; border-radius:5px; background:oklch(87% 0.015 75); position:relative; overflow:hidden;">
+          <div style="position:absolute; left:0; top:0; bottom:0; width:{{ c.jokerBarPct }}%; background:oklch(70% 0.14 85); border-radius:5px;"></div>
+        </div>
+        <div style="display:flex; justify-content:space-between; padding:0 18px 6px 18px; font-family:'Nunito',sans-serif; font-weight:800; font-size:11px; color:oklch(45% 0.02 60);">
+          <span>{{ c.jokersRemaining }}/8 jokers left</span>
+          <span><span style="color:oklch(70% 0.16 85);">★</span> {{ c.starsCollected }}/{{ c.starsTotal }}</span>
+        </div>
+
+        <div style="flex:1; display:flex; align-items:flex-start; justify-content:center; padding:4px 12px;">
+          <div style="display:flex; flex-direction:column; gap:2px;">
+            <sc-for list="{{ c.board }}" as="row" hint-placeholder-count="15">
+              <div style="display:flex; align-items:center; gap:4px;">
+                <div style="width:13px; font-family:'Baloo 2',sans-serif; font-size:11px; font-weight:700; color:oklch(42% 0.02 60); text-align:center;">{{ row.letter }}</div>
+                <div style="display:flex; gap:2px;">
+                  <sc-for list="{{ row.cells }}" as="cell" hint-placeholder-count="7">
+                    <div onClick="{{ cell.onClick }}" style="{{ cell.style }}">
+                      <sc-if value="{{ cell.hasStar }}">
+                        <span style="font-size:14px; color:oklch(30% 0.02 60); opacity:0.75;">★</span>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+                <sc-if value="{{ row.statusLabel }}">
+                  <div style="width:38px; height:14px; border-radius:4px; background:{{ row.statusColor }}; display:flex; align-items:center; justify-content:center; font-size:8px; font-weight:800; color:oklch(30% 0.02 60); font-family:'Nunito',sans-serif;">{{ row.statusLabel }}</div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="margin:6px 12px 0 12px; padding:12px 14px 14px 14px; background:oklch(58% 0.04 145 / 0.16); border-radius:20px 20px 0 0; box-shadow:inset 0 2px 6px rgba(30,50,30,0.15);">
+          <div style="display:flex; justify-content:center; gap:8px; margin-bottom:8px;">
+            <sc-for list="{{ c.colorDice }}" as="die" hint-placeholder-count="3">
+              <div onClick="{{ die.onClick }}" style="{{ die.style }}"></div>
+            </sc-for>
+            <sc-for list="{{ c.numberDice }}" as="die" hint-placeholder-count="3">
+              <div onClick="{{ die.onClick }}" style="{{ die.style }}">
+                <sc-for list="{{ die.pips }}" as="on" hint-placeholder-count="9">
+                  <div style="width:5px; height:5px; border-radius:50%; margin:auto; background:{{ on }};"></div>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display:flex; justify-content:center; gap:8px; margin-bottom:10px;">
+            <div onClick="{{ c.onToggleIgnoreColor }}" style="font-family:'Nunito',sans-serif; font-size:11px; font-weight:700; padding:5px 10px; border-radius:100px; cursor:pointer; background:{{ c.ignoreColorBg }}; color:oklch(30% 0.02 60);">Joker: colour</div>
+            <div onClick="{{ c.onToggleIgnoreNumber }}" style="font-family:'Nunito',sans-serif; font-size:11px; font-weight:700; padding:5px 10px; border-radius:100px; cursor:pointer; background:{{ c.ignoreNumberBg }}; color:oklch(30% 0.02 60);">Joker: number</div>
+          </div>
+          <div onClick="{{ c.onRoll }}" style="text-align:center; padding:15px 0; border-radius:16px; background:oklch(62% 0.15 35); color:oklch(98% 0 0); font-family:'Baloo 2',sans-serif; font-weight:800; font-size:16px; cursor:pointer; box-shadow:0 3px 0 oklch(48% 0.14 35); margin-bottom:8px;">Roll dice</div>
+          <div style="display:flex; gap:8px; padding-bottom:18px;">
+            <div onClick="{{ c.onPass }}" style="flex:1; text-align:center; padding:11px 0; border-radius:12px; background:transparent; color:oklch(35% 0.02 60); font-family:'Baloo 2',sans-serif; font-weight:700; font-size:13px; cursor:pointer; box-shadow:inset 0 0 0 2px oklch(70% 0.02 70);">Pass</div>
+            <div onClick="{{ c.onConfirm }}" style="flex:1; text-align:center; padding:11px 0; border-radius:12px; background:{{ c.confirmBg }}; color:oklch(98% 0 0); font-family:'Baloo 2',sans-serif; font-weight:700; font-size:13px; cursor:pointer; box-shadow:{{ c.confirmShadow }};">Confirm</div>
+          </div>
+        </div>
+
+        <sc-if value="{{ c.settingsOpen }}">
+          <div style="position:absolute; inset:0; background:rgba(30,22,15,0.45); display:flex; align-items:center; justify-content:center;">
+            <div style="width:280px; background:oklch(96% 0.015 78); border-radius:20px; padding:20px; box-shadow:0 20px 40px rgba(0,0,0,0.3);">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+                <div style="font-family:'Baloo 2',sans-serif; font-weight:700; font-size:17px; color:oklch(28% 0.02 60);">Settings</div>
+                <div onClick="{{ c.onToggleSettings }}" style="width:26px; height:26px; border-radius:50%; background:oklch(88% 0.02 70); display:flex; align-items:center; justify-content:center; cursor:pointer; font-weight:700; color:oklch(35% 0.02 60);">×</div>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <span style="font-family:'Nunito',sans-serif; font-weight:700; font-size:14px; color:oklch(35% 0.02 60);">Sound</span>
+                  <div onClick="{{ c.onToggleSound }}" style="width:42px; height:24px; border-radius:100px; background:{{ c.soundTrackBg }}; position:relative; cursor:pointer;">
+                    <div style="width:18px; height:18px; border-radius:50%; background:white; position:absolute; top:3px; left:{{ c.soundThumbLeft }}; box-shadow:0 1px 2px rgba(0,0,0,0.3);"></div>
+                  </div>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <span style="font-family:'Nunito',sans-serif; font-weight:700; font-size:14px; color:oklch(35% 0.02 60);">Music</span>
+                  <div onClick="{{ c.onToggleMusic }}" style="width:42px; height:24px; border-radius:100px; background:{{ c.musicTrackBg }}; position:relative; cursor:pointer;">
+                    <div style="width:18px; height:18px; border-radius:50%; background:white; position:absolute; top:3px; left:{{ c.musicThumbLeft }}; box-shadow:0 1px 2px rgba(0,0,0,0.3);"></div>
+                  </div>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <span style="font-family:'Nunito',sans-serif; font-weight:700; font-size:14px; color:oklch(35% 0.02 60);">Vibration</span>
+                  <div onClick="{{ c.onToggleVibration }}" style="width:42px; height:24px; border-radius:100px; background:{{ c.vibrationTrackBg }}; position:relative; cursor:pointer;">
+                    <div style="width:18px; height:18px; border-radius:50%; background:white; position:absolute; top:3px; left:{{ c.vibrationThumbLeft }}; box-shadow:0 1px 2px rgba(0,0,0,0.3);"></div>
+                  </div>
+                </div>
+                <div style="text-align:center; margin-top:8px; padding:10px 0; border-radius:12px; background:oklch(88% 0.02 70); font-family:'Nunito',sans-serif; font-weight:800; font-size:13px; color:oklch(35% 0.02 60); cursor:pointer;">Quit match</div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+
+  </div>
+  <div style="font-family:'Nunito',sans-serif; font-size:12px; color:oklch(50% 0.02 60); max-width:600px;">Tap a colour die + a number die to see matching cells glow (dashed outline). Tap glowing cells to mark them (pending, blue ring), then Confirm to lock them in (dimmed + counted) or Pass to discard the selection. Joker chips let you skip a condition at the cost of a joker.</div>
+</section>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+
+const ROW_LETTERS = ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O'];
+
+const COLOR_HEX = {
+  green: 'oklch(78% 0.13 145)',
+  red: 'oklch(72% 0.15 25)',
+  yellow: 'oklch(87% 0.14 95)',
+  blue: 'oklch(74% 0.1 250)',
+  orange: 'oklch(80% 0.13 60)',
+  black: 'oklch(46% 0.03 265)',
+};
+const DIE_COLORS = ['green','red','yellow','blue','orange','black'];
+
+const BOARD_DATA = [
+  ['green','green','red','red','yellow','yellow','yellow'],
+  ['green','green','blue','red','blue','yellow','yellow'],
+  ['green','green','red','red','blue','yellow','orange'],
+  ['orange','orange','red','blue','blue','orange','orange'],
+  ['red','orange','yellow','blue','orange','orange','yellow'],
+  ['orange','orange','orange','blue','orange','green','yellow'],
+  ['red','red','red','green','yellow','yellow','yellow'],
+  ['blue','blue','orange','green','blue','green','yellow'],
+  ['blue','blue','orange','green','blue','blue','green'],
+  ['blue','yellow','orange','green','red','blue','green'],
+  ['orange','yellow','orange','green','red','red','red'],
+  ['yellow','yellow','green','yellow','yellow','yellow','yellow'],
+  ['red','green','green','orange','blue','red','red'],
+  ['red','red','blue','orange','blue','blue','orange'],
+  ['green','green','blue','yellow','yellow','red','orange'],
+];
+
+const STAR_KEYS = new Set([
+  '0-6','1-0','2-4','3-0','4-2','4-5','5-0','6-3','7-6',
+  '9-0','9-4','11-3','13-0','13-5','14-2',
+]);
+
+const ROW_STATUS = [null,null,null,null,'second',null,null,'first',null,null,null,null,null,null,null];
+
+const ROW_REWARDS = [
+  { first: 5, second: 3 }, { first: 3, second: 2 }, { first: 3, second: 2 },
+  { first: 3, second: 2 }, { first: 2, second: 1 }, { first: 2, second: 1 },
+  { first: 2, second: 1 }, { first: 1, second: 0 }, { first: 2, second: 1 },
+  { first: 2, second: 1 }, { first: 2, second: 1 }, { first: 3, second: 2 },
+  { first: 3, second: 2 }, { first: 3, second: 2 }, { first: 5, second: 3 },
+];
+const COLOR_REWARD = { first: 5, second: 3 };
+const PENALTY_PER_UNMARKED_STAR = -2;
+const REWARD_PER_UNUSED_JOKER = 1;
+
+const COLOR_TOTALS = (() => {
+  const totals = {};
+  DIE_COLORS.forEach(c => totals[c] = 0);
+  BOARD_DATA.forEach(row => row.forEach(c => totals[c]++));
+  return totals;
+})();
+
+const AVATAR_COLORS = [
+  'oklch(65% 0.12 45)', 'oklch(60% 0.13 145)', 'oklch(62% 0.12 250)',
+  'oklch(70% 0.15 85)', 'oklch(58% 0.16 25)', 'oklch(55% 0.1 300)',
+  'oklch(68% 0.14 15)', 'oklch(63% 0.11 190)', 'oklch(72% 0.13 105)',
+  'oklch(58% 0.03 60)', 'oklch(66% 0.15 340)', 'oklch(50% 0.02 260)',
+];
+
+const AVATAR_ICONS = ['🦊', '🐻', '🦉', '🐺', '🦁', '🐢', '🐙', '🦅', '🐯', '🐨'];
+
+const PIP_MAP = {
+  1: [4],
+  2: [0,8],
+  3: [0,4,8],
+  4: [0,2,6,8],
+  5: [0,2,4,6,8],
+  6: [0,2,3,5,6,8],
+};
+function pipsFor(n) {
+  const arr = new Array(9).fill('transparent');
+  (PIP_MAP[n] || []).forEach(i => arr[i] = 'oklch(30% 0.02 60)');
+  return arr;
+}
+
+function makeVariant(colorFaces, numberFaces, jokersUsed, committed) {
+  return {
+    colorFaces, numberFaces,
+    selColor: null, selColorIdx: null, selNumber: null, selNumberIdx: null,
+    ignoreColor: false, ignoreNumber: false,
+    committedMarked: committed || [], tempMarked: [],
+    jokersUsed: jokersUsed || 0,
+    settingsOpen: false, soundOn: true, musicOn: true, vibrationOn: false,
+    rolling: false,
+  };
+}
+
+const RANK_TIERS = [
+  { name: 'Wood', sub: 'III', color: 'oklch(56% 0.05 55)' },
+  { name: 'Wood', sub: 'II', color: 'oklch(61% 0.055 55)' },
+  { name: 'Wood', sub: 'I', color: 'oklch(66% 0.06 55)' },
+  { name: 'Silver', sub: 'II', color: 'oklch(76% 0.015 255)' },
+  { name: 'Silver', sub: 'I', color: 'oklch(83% 0.012 255)' },
+  { name: 'Gold', sub: null, color: 'oklch(78% 0.15 85)' },
+  { name: 'Diamond', sub: null, color: 'oklch(74% 0.13 220)' },
+  { name: 'Aurelune', sub: null, color: 'oklch(64% 0.19 320)' },
+];
+
+const RANK_TIER_PCT = [5, 10, 16, 22, 20, 15, 9, 3];
+
+const RANKED_CATEGORIES = [
+  { id: 'overall', name: 'Overall Rating' },
+];
+
+const RANKED_PLAYERS = [
+  'Mara Novak', 'Alex Rivera', 'Priya Shah', 'Leo Fischer', 'Sam Okafor',
+  'Ingrid Voss', 'Noah Park', 'Elena Cruz', 'Tariq Malik', 'Yuki Tanaka',
+];
+
+function seededRand(seed) {
+  const x = Math.sin(seed * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+function tierLabelOf(t) {
+  if (!t) return 'Top tier reached';
+  return t.sub ? `${t.name} ${t.sub}` : t.name;
+}
+
+function buildRankedCategory(catIdx) {
+  const entries = RANKED_PLAYERS.map((name, i) => {
+    const r = seededRand(catIdx * 41 + i * 13 + 7);
+    const tierIdx = Math.max(1, Math.min(7, Math.round(r * 7)));
+    const winsInTier = Math.floor(seededRand(catIdx * 53 + i * 17 + 3) * 10);
+    const score = tierIdx * 10 + winsInTier;
+    return { name, isYou: i === 0, tierIdx, winsInTier, score };
+  });
+  entries.sort((a, b) => b.score - a.score);
+  entries.forEach((e, i) => { e.rank = i + 1; });
+  const you = entries.find(e => e.isYou);
+  const tier = RANK_TIERS[you.tierIdx];
+  const nextTier = RANK_TIERS[you.tierIdx + 1];
+  return {
+    id: RANKED_CATEGORIES[catIdx].id,
+    name: RANKED_CATEGORIES[catIdx].name,
+    entries,
+    you,
+    tier,
+    nextTier,
+    winsInTier: you.winsInTier,
+    winsNeeded: 10,
+  };
+}
+
+const FEEDBACK_MESSAGES = [
+  'Alex just completed row H!',
+  'Alex collected a star!',
+  'Alex used a joker to lock a cell!',
+  'Alex is closing in on row C!',
+];
+
+class Component extends DCLogic {
+  state = {
+    variants: {
+      a: makeVariant(['blue','green','orange'], [4,2,6], 1, ['0-0','1-1']),
+      b: makeVariant(['red','yellow','blue'], [1,5,3], 0, []),
+      c: makeVariant(['orange','black','green'], [6,2,4], 3, ['2-0']),
+      game: makeVariant(['blue','green','orange'], [4,2,6], 1, ['0-0','1-1','2-1','3-2']),
+    },
+    opponent: {
+      name: 'Alex Rivera',
+      committedMarked: ['0-1','1-2','2-2','3-3','4-1','5-1','6-2','7-3'],
+      jokersUsed: 2,
+    },
+    flow: {
+      nav: 'login',
+      viewingOpponent: false,
+      toastMsg: '',
+      toastVisible: false,
+      toastSeq: 0,
+      profileName: 'Mara Novak',
+      lobbyCode: 'PLN-482',
+      rulesReturn: 'menu',
+      statusOpen: false,
+      theme: 'light',
+      loginEmail: '',
+      loginPassword: '',
+      soundOn: true,
+      musicOn: true,
+      vibrationOn: false,
+      notificationsOn: true,
+      rankedCategoryIndex: 0,
+      rankInfoOpen: false,
+    },
+    profile: {
+      avatarColor: 'oklch(65% 0.12 45)',
+      avatarIcon: null,
+    },
+    initiative: {
+      phase: 'idle',
+      myRoll: null,
+      oppRoll: null,
+      rolling: false,
+    },
+  };
+
+  setNav(screen) {
+    this.setState(s => ({ flow: { ...s.flow, nav: screen } }));
+  }
+
+  goRules() {
+    this.setState(s => ({ flow: { ...s.flow, rulesReturn: s.flow.nav, nav: 'rules' } }));
+  }
+
+  backFromRules() {
+    this.setState(s => ({ flow: { ...s.flow, nav: s.flow.rulesReturn } }));
+  }
+
+  toggleStatus() {
+    this.setState(s => ({ flow: { ...s.flow, statusOpen: !s.flow.statusOpen } }));
+  }
+
+  setTheme(theme) {
+    this.setState(s => ({ flow: { ...s.flow, theme } }));
+  }
+
+  setLoginField(field, value) {
+    this.setState(s => ({ flow: { ...s.flow, [field]: value } }));
+  }
+
+  doLogin() {
+    this.setNav('menu');
+  }
+
+  doLogout() {
+    this.setState(s => ({ flow: { ...s.flow, loginEmail: '', loginPassword: '', nav: 'login' } }));
+  }
+
+  toggleFlowSetting(field) {
+    this.setState(s => ({ flow: { ...s.flow, [field]: !s.flow[field] } }));
+  }
+
+  setRankedCategory(idx) {
+    this.setState(s => ({ flow: { ...s.flow, rankedCategoryIndex: idx } }));
+  }
+
+  toggleRankInfo() {
+    this.setState(s => ({ flow: { ...s.flow, rankInfoOpen: !s.flow.rankInfoOpen } }));
+  }
+
+
+  setAvatarColor(color) {
+    this.setState(s => ({ profile: { ...s.profile, avatarColor: color } }));
+  }
+
+  setAvatarIcon(icon) {
+    this.setState(s => ({ profile: { ...s.profile, avatarIcon: icon === s.profile.avatarIcon ? null : icon } }));
+  }
+
+  goInitiative() {
+    this.setState({
+      flow: { ...this.state.flow, nav: 'initiative' },
+      initiative: { phase: 'idle', myRoll: null, oppRoll: null, rolling: false },
+    });
+  }
+
+  rollInitiative() {
+    if (this.state.initiative.rolling || this.state.initiative.phase === 'done') return;
+    this.setState(s => ({ initiative: { ...s.initiative, rolling: true, phase: 'rolling' } }));
+    let ticks = 0;
+    const spin = setInterval(() => {
+      ticks++;
+      this.setState(s => ({ initiative: { ...s.initiative, myRoll: 1 + Math.floor(Math.random() * 6), oppRoll: 1 + Math.floor(Math.random() * 6) } }));
+      if (ticks >= 10) {
+        clearInterval(spin);
+        const myRoll = 1 + Math.floor(Math.random() * 6);
+        let oppRoll = 1 + Math.floor(Math.random() * 6);
+        if (oppRoll === myRoll) oppRoll = ((oppRoll + 2) % 6) + 1;
+        this.setState(s => ({ initiative: { ...s.initiative, myRoll, oppRoll, rolling: false, phase: 'done' } }));
+      }
+    }, 90);
+  }
+
+  computeColorProgress(committedMarked) {
+    const counts = {};
+    DIE_COLORS.forEach(c => counts[c] = 0);
+    committedMarked.forEach(key => {
+      const parts = key.split('-');
+      const r = Number(parts[0]), c = Number(parts[1]);
+      const color = BOARD_DATA[r][c];
+      counts[color]++;
+    });
+    return DIE_COLORS.map(color => {
+      const total = COLOR_TOTALS[color];
+      const marked = counts[color];
+      return {
+        color, hex: COLOR_HEX[color], marked, total,
+        complete: total > 0 && marked === total,
+        pct: total ? Math.round((marked / total) * 100) : 0,
+      };
+    });
+  }
+
+  toggleOpponentView() {
+    this.setState(s => ({ flow: { ...s.flow, viewingOpponent: !s.flow.viewingOpponent } }));
+  }
+
+  triggerOpponentMove() {
+    const msg = FEEDBACK_MESSAGES[Math.floor(Math.random() * FEEDBACK_MESSAGES.length)];
+    const seq = this.state.flow.toastSeq + 1;
+    this.setState(s => ({ flow: { ...s.flow, toastMsg: msg, toastVisible: true, toastSeq: seq } }));
+    setTimeout(() => {
+      this.setState(s => (s.flow.toastSeq === seq ? { flow: { ...s.flow, toastVisible: false } } : {}));
+    }, 2800);
+  }
+
+  matchesCell(vs, color, r, c) {
+    const colorWild = vs.selColor === 'black';
+    const numberWild = vs.selNumber === 6;
+    const colorOk = vs.ignoreColor || colorWild || color === vs.selColor;
+    const numOk = vs.ignoreNumber || numberWild || (r + 1 === vs.selNumber) || (c + 1 === vs.selNumber);
+    return colorOk && numOk;
+  }
+
+  toggleIgnoreColor(vKey) {
+    this.setState(s => {
+      const vs = { ...s.variants[vKey] };
+      if (!vs.ignoreColor && vs.jokersUsed >= 8) return {};
+      vs.ignoreColor = !vs.ignoreColor;
+      return { variants: { ...s.variants, [vKey]: vs } };
+    });
+  }
+
+  toggleIgnoreNumber(vKey) {
+    this.setState(s => {
+      const vs = { ...s.variants[vKey] };
+      if (!vs.ignoreNumber && vs.jokersUsed >= 8) return {};
+      vs.ignoreNumber = !vs.ignoreNumber;
+      return { variants: { ...s.variants, [vKey]: vs } };
+    });
+  }
+
+  computeBoard(vKey, vs, cellSize, cellRadius) {
+    return BOARD_DATA.map((row, rIdx) => {
+      const statusVal = ROW_STATUS[rIdx];
+      const cells = row.map((color, cIdx) => {
+        const key = rIdx + '-' + cIdx;
+        const hasStar = STAR_KEYS.has(key);
+        const committed = vs.committedMarked.includes(key);
+        const pending = !committed && vs.tempMarked.includes(key);
+        const selectable = !committed && !pending && vs.selColor != null && vs.selNumber != null && this.matchesCell(vs, color, rIdx, cIdx);
+        const bg = COLOR_HEX[color];
+        let boxShadow = 'inset 0 0 0 2px rgba(40,30,20,0.55)';
+        if (pending) boxShadow = '0 0 0 3px oklch(55% 0.18 250), inset 0 0 0 2px rgba(40,30,20,0.6)';
+        const style = {
+          width: cellSize + 'px',
+          height: cellSize + 'px',
+          borderRadius: typeof cellRadius === 'number' ? cellRadius + 'px' : cellRadius,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          position: 'relative',
+          background: committed ? 'oklch(88% 0.01 80)' : bg,
+          boxShadow,
+          opacity: committed ? 0.55 : 1,
+          cursor: selectable ? 'pointer' : 'default',
+          outline: selectable ? '2px dashed oklch(28% 0.02 60)' : 'none',
+          outlineOffset: selectable ? '-3px' : '0',
+          transition: 'box-shadow 0.15s ease',
+        };
+        return {
+          key, hasStar, style,
+          onClick: selectable ? () => this.toggleTemp(vKey, key) : () => {},
+        };
+      });
+      const reward = ROW_REWARDS[rIdx];
+      return {
+        letter: ROW_LETTERS[rIdx],
+        cells,
+        statusLabel: statusVal === 'first' ? ('1st +' + reward.first) : statusVal === 'second' ? ('2nd +' + reward.second) : '',
+        statusColor: statusVal === 'first' ? 'oklch(80% 0.15 85)' : statusVal === 'second' ? 'oklch(84% 0.01 80)' : 'transparent',
+        noStatusLabel: !statusVal,
+        letterBg: statusVal === 'first' ? 'oklch(78% 0.15 85)' : statusVal === 'second' ? 'oklch(86% 0.015 78)' : 'transparent',
+        letterColor: statusVal ? 'oklch(28% 0.02 60)' : 'oklch(42% 0.02 60)',
+      };
+    });
+  }
+
+  toggleTemp(vKey, key) {
+    this.setState(s => {
+      const vs = { ...s.variants[vKey] };
+      const has = vs.tempMarked.includes(key);
+      vs.tempMarked = has ? vs.tempMarked.filter(k => k !== key) : [...vs.tempMarked, key];
+      return { variants: { ...s.variants, [vKey]: vs } };
+    });
+  }
+
+  rollDice(vKey) {
+    this.setState(s => {
+      const vs = { ...s.variants[vKey] };
+      vs.colorFaces = [0, 0, 0].map(() => DIE_COLORS[Math.floor(Math.random() * DIE_COLORS.length)]);
+      vs.numberFaces = [0, 0, 0].map(() => 1 + Math.floor(Math.random() * 6));
+      vs.selColor = null; vs.selColorIdx = null; vs.selNumber = null; vs.selNumberIdx = null;
+      vs.ignoreColor = false; vs.ignoreNumber = false; vs.tempMarked = [];
+      vs.rolling = true;
+      return { variants: { ...s.variants, [vKey]: vs } };
+    });
+    setTimeout(() => {
+      this.setState(s => ({ variants: { ...s.variants, [vKey]: { ...s.variants[vKey], rolling: false } } }));
+    }, 420);
+  }
+
+  selectColorDie(vKey, idx) {
+    this.setState(s => {
+      const vs = { ...s.variants[vKey] };
+      vs.selColorIdx = idx; vs.selColor = vs.colorFaces[idx];
+      return { variants: { ...s.variants, [vKey]: vs } };
+    });
+  }
+
+  selectNumberDie(vKey, idx) {
+    this.setState(s => {
+      const vs = { ...s.variants[vKey] };
+      vs.selNumberIdx = idx; vs.selNumber = vs.numberFaces[idx];
+      return { variants: { ...s.variants, [vKey]: vs } };
+    });
+  }
+
+  confirmMove(vKey) {
+    this.setState(s => {
+      const vs = { ...s.variants[vKey] };
+      if (vs.selColor == null || vs.selNumber == null) return {};
+      const usedJokers = ((vs.ignoreColor || vs.selColor === 'black') ? 1 : 0) + ((vs.ignoreNumber || vs.selNumber === 6) ? 1 : 0);
+      if (vs.jokersUsed + usedJokers > 8) return {};
+      const merged = [...vs.committedMarked];
+      vs.tempMarked.forEach(k => { if (!merged.includes(k)) merged.push(k); });
+      vs.committedMarked = merged;
+      vs.jokersUsed = Math.min(8, vs.jokersUsed + usedJokers);
+      vs.tempMarked = [];
+      vs.selColor = null; vs.selColorIdx = null; vs.selNumber = null; vs.selNumberIdx = null;
+      return { variants: { ...s.variants, [vKey]: vs } };
+    });
+  }
+
+  passTurn(vKey) {
+    this.setState(s => {
+      const vs = { ...s.variants[vKey] };
+      vs.tempMarked = [];
+      vs.selColor = null; vs.selColorIdx = null; vs.selNumber = null; vs.selNumberIdx = null;
+      vs.ignoreColor = false; vs.ignoreNumber = false;
+      return { variants: { ...s.variants, [vKey]: vs } };
+    });
+  }
+
+  toggleSettings(vKey) {
+    this.setState(s => ({ variants: { ...s.variants, [vKey]: { ...s.variants[vKey], settingsOpen: !s.variants[vKey].settingsOpen } } }));
+  }
+
+  toggleSetting(vKey, field) {
+    this.setState(s => ({ variants: { ...s.variants, [vKey]: { ...s.variants[vKey], [field]: !s.variants[vKey][field] } } }));
+  }
+
+  buildVariant(vKey, cfg) {
+    const vs = this.state.variants[vKey];
+    const board = this.computeBoard(vKey, vs, cfg.cellSize, cfg.cellRadius);
+    const jokerPips = Array.from({ length: 8 }, (_, i) => ({
+      color: i >= vs.jokersUsed ? 'oklch(78% 0.14 85)' : 'oklch(85% 0.01 80)',
+    }));
+    const switchStyle = (on) => ({
+      background: on ? 'oklch(62% 0.13 145)' : 'oklch(82% 0.02 70)',
+    });
+    const thumbStyle = (on) => ({
+      left: on ? '21px' : '3px',
+    });
+    const starsCollected = vs.committedMarked.filter(k => STAR_KEYS.has(k)).length;
+    const colorProgress = this.computeColorProgress(vs.committedMarked);
+    const completedColorsCount = colorProgress.filter(p => p.complete).length;
+
+    const colorDice = vs.colorFaces.map((c, i) => ({
+      style: {
+        width: cfg.dieSize + 'px',
+        height: cfg.dieSize + 'px',
+        borderRadius: typeof cfg.dieRadius === 'number' ? cfg.dieRadius + 'px' : cfg.dieRadius,
+        cursor: 'pointer',
+        background: COLOR_HEX[c],
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: '16px',
+        boxShadow: (vs.selColorIdx === i
+          ? '0 0 0 3px oklch(28% 0.02 60), inset 0 -4px 8px rgba(0,0,0,0.25), inset 0 3px 4px rgba(255,255,255,0.35)'
+          : 'inset 0 -4px 8px rgba(0,0,0,0.25), inset 0 3px 4px rgba(255,255,255,0.35)'),
+        animation: vs.rolling ? 'diceRoll 0.4s ease' : 'none',
+      },
+      onClick: () => this.selectColorDie(vKey, i),
+      isWild: c === 'black',
+    }));
+
+    const numberDice = vs.numberFaces.map((n, i) => ({
+      pips: pipsFor(n),
+      style: {
+        width: cfg.dieSize + 'px',
+        height: cfg.dieSize + 'px',
+        borderRadius: typeof cfg.dieRadius === 'number' ? cfg.dieRadius + 'px' : cfg.dieRadius,
+        cursor: 'pointer',
+        background: 'oklch(97% 0.01 80)',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(3,1fr)',
+        gridTemplateRows: 'repeat(3,1fr)',
+        padding: cfg.numberPadding + 'px',
+        boxSizing: 'border-box',
+        boxShadow: (vs.selNumberIdx === i
+          ? '0 0 0 3px oklch(28% 0.02 60), inset 0 -4px 8px rgba(0,0,0,0.12), inset 0 3px 4px rgba(255,255,255,0.7)'
+          : 'inset 0 -4px 8px rgba(0,0,0,0.12), inset 0 3px 4px rgba(255,255,255,0.7)'),
+        animation: vs.rolling ? 'diceRoll 0.4s ease' : 'none',
+      },
+      onClick: () => this.selectNumberDie(vKey, i),
+    }));
+
+    return {
+      board, jokerPips,
+      jokersRemaining: 8 - vs.jokersUsed,
+      jokerBarPct: Math.round(((8 - vs.jokersUsed) / 8) * 100),
+      starsCollected, starsTotal: 15,
+      colorProgress, completedColorsCount,
+      colorDice, numberDice,
+      ignoreColorActive: vs.ignoreColor,
+      ignoreNumberActive: vs.ignoreNumber,
+      ignoreColorBg: vs.ignoreColor ? 'oklch(70% 0.14 85)' : 'oklch(90% 0.02 70)',
+      ignoreNumberBg: vs.ignoreNumber ? 'oklch(70% 0.14 85)' : 'oklch(90% 0.02 70)',
+      onToggleIgnoreColor: () => this.toggleIgnoreColor(vKey),
+      onToggleIgnoreNumber: () => this.toggleIgnoreNumber(vKey),
+      jokersRemaining2: 8 - vs.jokersUsed,
+      colorWildActive: vs.selColor === 'black',
+      numberWildActive: vs.selNumber === 6,
+      pendingJokerCost: (vs.selColor === 'black' ? 1 : 0) + (vs.selNumber === 6 ? 1 : 0),
+      colorWildBadgeBg: vs.selColor === 'black' ? 'oklch(70% 0.14 85)' : 'oklch(94% 0.01 80)',
+      numberWildBadgeBg: vs.selNumber === 6 ? 'oklch(70% 0.14 85)' : 'oklch(94% 0.01 80)',
+      colorWildBadgeColor: vs.selColor === 'black' ? 'oklch(30% 0.02 60)' : 'oklch(58% 0.02 65)',
+      numberWildBadgeColor: vs.selNumber === 6 ? 'oklch(30% 0.02 60)' : 'oklch(58% 0.02 65)',
+      onRoll: () => this.rollDice(vKey),
+      confirmEnabled: vs.selColor != null && vs.selNumber != null,
+      confirmBg: (vs.selColor != null && vs.selNumber != null) ? 'oklch(58% 0.13 145)' : 'oklch(82% 0.02 71)',
+      confirmShadow: (vs.selColor != null && vs.selNumber != null) ? '0 3px 0 oklch(45% 0.12 145)' : '0 3px 0 oklch(70% 0.02 71)',
+      onConfirm: () => this.confirmMove(vKey),
+      onPass: () => this.passTurn(vKey),
+      settingsOpen: vs.settingsOpen,
+      onToggleSettings: () => this.toggleSettings(vKey),
+      soundOn: vs.soundOn, musicOn: vs.musicOn, vibrationOn: vs.vibrationOn,
+      soundTrackBg: switchStyle(vs.soundOn).background,
+      soundThumbLeft: thumbStyle(vs.soundOn).left,
+      musicTrackBg: switchStyle(vs.musicOn).background,
+      musicThumbLeft: thumbStyle(vs.musicOn).left,
+      vibrationTrackBg: switchStyle(vs.vibrationOn).background,
+      vibrationThumbLeft: thumbStyle(vs.vibrationOn).left,
+      onToggleSound: () => this.toggleSetting(vKey, 'soundOn'),
+      onToggleMusic: () => this.toggleSetting(vKey, 'musicOn'),
+      onToggleVibration: () => this.toggleSetting(vKey, 'vibrationOn'),
+    };
+  }
+
+  buildOpponentBoard(cellSize, cellRadius) {
+    const opp = this.state.opponent;
+    const vs = { committedMarked: opp.committedMarked, tempMarked: [], selColor: null, selNumber: null, ignoreColor: false, ignoreNumber: false };
+    const board = this.computeBoard('opponent', vs, cellSize, cellRadius);
+    const jokerPips = Array.from({ length: 8 }, (_, i) => ({
+      color: i >= opp.jokersUsed ? 'oklch(78% 0.14 85)' : 'oklch(85% 0.01 80)',
+    }));
+    const starsCollected = opp.committedMarked.filter(k => STAR_KEYS.has(k)).length;
+    const colorProgress = this.computeColorProgress(opp.committedMarked);
+    const completedColorsCount = colorProgress.filter(p => p.complete).length;
+    return { board, jokerPips, jokersRemaining: 8 - opp.jokersUsed, starsCollected, starsTotal: 15, name: opp.name, colorProgress, completedColorsCount };
+  }
+
+  renderVals() {
+    const flow = this.state.flow;
+    const theme = flow.theme === 'dark' ? {
+      phoneBg: 'oklch(22% 0.015 60)',
+      card: 'oklch(28% 0.015 60)',
+      cardAlt: 'oklch(33% 0.015 60)',
+      textPrimary: 'oklch(94% 0.01 80)',
+      textSecondary: 'oklch(72% 0.015 70)',
+      inputBg: 'oklch(30% 0.015 60)',
+      border: 'oklch(40% 0.015 65)',
+    } : {
+      phoneBg: 'oklch(95% 0.02 78)',
+      card: 'oklch(97% 0.01 80)',
+      cardAlt: 'oklch(90% 0.02 72)',
+      textPrimary: 'oklch(30% 0.02 60)',
+      textSecondary: 'oklch(50% 0.02 60)',
+      inputBg: 'oklch(90% 0.02 72)',
+      border: 'oklch(88% 0.02 72)',
+    };
+    const gameCfg = { cellSize: 33, cellRadius: 7, dieSize: 42, dieRadius: '50%', numberPadding: 7 };
+    const gameData = this.buildVariant('game', gameCfg);
+    const oppData = this.buildOpponentBoard(gameCfg.cellSize, gameCfg.cellRadius);
+    return {
+      a: this.buildVariant('a', { cellSize: 30, cellRadius: 6, dieSize: 46, dieRadius: 11, numberPadding: 8 }),
+      b: this.buildVariant('b', { cellSize: 29, cellRadius: '50%', dieSize: 42, dieRadius: '50%', numberPadding: 7 }),
+      c: this.buildVariant('c', { cellSize: 29, cellRadius: 8, dieSize: 40, dieRadius: 10, numberPadding: 6 }),
+      game: gameData,
+      opponentView: oppData,
+      nav2: {
+        isLogin: flow.nav === 'login',
+        isMenu: flow.nav === 'menu',
+        isCreateLobby: flow.nav === 'createLobby',
+        isJoinLobby: flow.nav === 'joinLobby',
+        isProfile: flow.nav === 'profile',
+        isGame: flow.nav === 'game',
+        isAvatar: flow.nav === 'avatar',
+        isRules: flow.nav === 'rules',
+        isInitiative: flow.nav === 'initiative',
+        isConfig: flow.nav === 'config',
+        goLogin: () => this.setNav('login'),
+        goMenu: () => this.setNav('menu'),
+        goCreateLobby: () => this.setNav('createLobby'),
+        goJoinLobby: () => this.setNav('joinLobby'),
+        goProfile: () => this.setNav('profile'),
+        goGame: () => this.setNav('game'),
+        goInitiative: () => this.goInitiative(),
+        goAvatar: () => this.setNav('avatar'),
+        goRules: () => this.goRules(),
+        goConfig: () => this.setNav('config'),
+        backFromRules: () => this.backFromRules(),
+        theme,
+        isDark: flow.theme === 'dark',
+        toggleTheme: () => this.setTheme(flow.theme === 'dark' ? 'light' : 'dark'),
+        themeToggleIcon: flow.theme === 'dark' ? '☀' : '☾',
+        loginEmail: flow.loginEmail,
+        loginPassword: flow.loginPassword,
+        onLoginEmailChange: (e) => this.setLoginField('loginEmail', e.target.value),
+        onLoginPasswordChange: (e) => this.setLoginField('loginPassword', e.target.value),
+        onLogin: () => this.doLogin(),
+        onLogout: () => this.doLogout(),
+        soundOn: flow.soundOn,
+        musicOn: flow.musicOn,
+        vibrationOn: flow.vibrationOn,
+        notificationsOn: flow.notificationsOn,
+        soundTrackBg: flow.soundOn ? 'oklch(62% 0.13 145)' : 'oklch(82% 0.02 70)',
+        soundThumbLeft: flow.soundOn ? '21px' : '3px',
+        musicTrackBg: flow.musicOn ? 'oklch(62% 0.13 145)' : 'oklch(82% 0.02 70)',
+        musicThumbLeft: flow.musicOn ? '21px' : '3px',
+        vibrationTrackBg: flow.vibrationOn ? 'oklch(62% 0.13 145)' : 'oklch(82% 0.02 70)',
+        vibrationThumbLeft: flow.vibrationOn ? '21px' : '3px',
+        notificationsTrackBg: flow.notificationsOn ? 'oklch(62% 0.13 145)' : 'oklch(82% 0.02 70)',
+        notificationsThumbLeft: flow.notificationsOn ? '21px' : '3px',
+        onToggleSound: () => this.toggleFlowSetting('soundOn'),
+        onToggleMusic: () => this.toggleFlowSetting('musicOn'),
+        onToggleVibration: () => this.toggleFlowSetting('vibrationOn'),
+        onToggleNotifications: () => this.toggleFlowSetting('notificationsOn'),
+        lightTabBg: flow.theme !== 'dark' ? 'oklch(62% 0.15 35)' : 'transparent',
+        lightTabColor: flow.theme !== 'dark' ? 'oklch(98% 0 0)' : theme.textPrimary,
+        darkTabBg: flow.theme === 'dark' ? 'oklch(62% 0.15 35)' : 'transparent',
+        darkTabColor: flow.theme === 'dark' ? 'oklch(98% 0 0)' : theme.textPrimary,
+        isRanked: flow.nav === 'ranked',
+        goRanked: () => this.setNav('ranked'),
+        ranked: (() => {
+          const data = buildRankedCategory(0);
+          return {
+            categoryName: data.name,
+            tierLabel: tierLabelOf(data.tier),
+            tierColor: data.tier.color,
+            nextTierLabel: tierLabelOf(data.nextTier),
+            winsInTier: data.winsInTier,
+            winsNeeded: data.winsNeeded,
+            winPips: Array.from({ length: 10 }, (_, i) => ({ bg: i < data.winsInTier ? data.tier.color : theme.cardAlt })),
+            yourRank: data.you.rank,
+            rows: data.entries.slice(0, 8).map(e => ({
+              rank: e.rank,
+              name: e.isYou ? `${e.name} (you)` : e.name,
+              wins: `${e.winsInTier}/10`,
+              tierColor: RANK_TIERS[e.tierIdx].color,
+              tierLabel: tierLabelOf(RANK_TIERS[e.tierIdx]),
+              rowBg: e.isYou ? 'oklch(90% 0.08 40)' : theme.card,
+              rowTextColor: e.isYou ? 'oklch(35% 0.1 40)' : theme.textPrimary,
+            })),
+            youInTop: data.you.rank <= 8,
+          };
+        })(),
+        rankInfoOpen: flow.rankInfoOpen,
+        toggleRankInfo: () => this.toggleRankInfo(),
+        rankTierRows: (() => {
+          const data = buildRankedCategory(0);
+          return RANK_TIERS.map((t, i) => ({
+            tierColor: t.color,
+            tierLabel: tierLabelOf(t),
+            pct: RANK_TIER_PCT[i],
+            isYours: i === data.you.tierIdx,
+            rowBg: i === data.you.tierIdx ? 'oklch(90% 0.08 40)' : theme.card,
+            rowTextColor: i === data.you.tierIdx ? 'oklch(35% 0.1 40)' : theme.textPrimary,
+          })).reverse();
+        })(),
+        menuRank: (() => {
+          const data = buildRankedCategory(0);
+          return { tierColor: data.tier.color, tierLabel: tierLabelOf(data.tier) };
+        })(),
+        statusOpen: flow.statusOpen,
+        toggleStatus: () => this.toggleStatus(),
+        profileAvatarColor: this.state.profile.avatarColor,
+        profileAvatarIcon: this.state.profile.avatarIcon,
+        hasAvatarIcon: !!this.state.profile.avatarIcon,
+        noAvatarIcon: !this.state.profile.avatarIcon,
+        avatarSwatches: AVATAR_COLORS.map(clr => ({
+          color: clr,
+          ring: clr === this.state.profile.avatarColor ? '0 0 0 3px oklch(30% 0.02 60), 0 0 0 6px oklch(95% 0.02 78)' : 'none',
+          onClick: () => this.setAvatarColor(clr),
+        })),
+        avatarIconOptions: AVATAR_ICONS.map(ic => ({
+          icon: ic,
+          bg: ic === this.state.profile.avatarIcon ? 'oklch(90% 0.02 72)' : 'oklch(97% 0.01 80)',
+          ring: ic === this.state.profile.avatarIcon ? '0 0 0 2.5px oklch(30% 0.02 60)' : 'inset 0 0 0 1.5px oklch(88% 0.02 72)',
+          onClick: () => this.setAvatarIcon(ic),
+        })),
+        rowsTable: ROW_LETTERS.map((letter, i) => ({
+          letter, first: ROW_REWARDS[i].first, second: ROW_REWARDS[i].second,
+          pct1: Math.round((ROW_REWARDS[i].first / 5) * 100),
+          pct2: Math.round((ROW_REWARDS[i].second / 5) * 100),
+        })),
+        colorRewardFirst: COLOR_REWARD.first,
+        colorRewardSecond: COLOR_REWARD.second,
+        colorSwatchesRules: DIE_COLORS.filter(c => c !== 'black').map(c => ({ hex: COLOR_HEX[c] })),
+        starPenalty: PENALTY_PER_UNMARKED_STAR,
+        jokerReward: REWARD_PER_UNUSED_JOKER,
+        initPhase: this.state.initiative.phase,
+        initRolling: this.state.initiative.rolling,
+        initMyRoll: this.state.initiative.myRoll,
+        initOppRoll: this.state.initiative.oppRoll,
+        initMyPipStyle: pipsFor(this.state.initiative.myRoll || 0),
+        initOppPipStyle: pipsFor(this.state.initiative.oppRoll || 0),
+        initResultText: this.state.initiative.phase === 'done'
+          ? (this.state.initiative.myRoll > this.state.initiative.oppRoll ? 'You go first!' : 'Alex goes first!')
+          : '',
+        initResultColor: this.state.initiative.phase === 'done'
+          ? (this.state.initiative.myRoll > this.state.initiative.oppRoll ? 'oklch(55% 0.13 145)' : 'oklch(60% 0.15 35)')
+          : 'transparent',
+        onRollInitiative: () => this.rollInitiative(),
+        initButtonLabel: this.state.initiative.phase === 'done' ? 'Continue to match' : (this.state.initiative.rolling ? 'Rolling…' : 'Roll for initiative'),
+        initButtonAction: this.state.initiative.phase === 'done' ? (() => this.setNav('game')) : (() => this.rollInitiative()),
+        initDiceAnim: this.state.initiative.rolling ? 'diceRoll 0.3s ease infinite' : 'none',
+        viewingOpponent: flow.viewingOpponent,
+        toggleOpponentView: () => this.toggleOpponentView(),
+        myBoardTabBg: !flow.viewingOpponent ? 'oklch(62% 0.15 35)' : 'oklch(90% 0.02 72)',
+        myBoardTabColor: !flow.viewingOpponent ? 'oklch(98% 0 0)' : 'oklch(38% 0.02 60)',
+        oppBoardTabBg: flow.viewingOpponent ? 'oklch(62% 0.15 35)' : 'oklch(90% 0.02 72)',
+        oppBoardTabColor: flow.viewingOpponent ? 'oklch(98% 0 0)' : 'oklch(38% 0.02 60)',
+        toastVisible: flow.toastVisible,
+        toastMsg: flow.toastMsg,
+        toastTransform: flow.toastVisible ? 'translateY(0)' : 'translateY(-140%)',
+        triggerOpponentMove: () => this.triggerOpponentMove(),
+        profileName: flow.profileName,
+        lobbyCode: flow.lobbyCode,
+        activeBoard: flow.viewingOpponent ? oppData.board : gameData.board,
+        activeJokerPips: flow.viewingOpponent ? oppData.jokerPips : gameData.jokerPips,
+        activeStarsCollected: flow.viewingOpponent ? oppData.starsCollected : gameData.starsCollected,
+        activeStarsTotal: 15,
+        activeLabel: flow.viewingOpponent ? "Alex's board \u2014 view only" : 'Your board',
+        diceTrayDisplay: flow.viewingOpponent ? 'none' : 'block',
+        activeColorProgress: (flow.viewingOpponent ? oppData.colorProgress : gameData.colorProgress).filter(cp => cp.total > 0),
+        activeCompletedCount: flow.viewingOpponent ? oppData.completedColorsCount : gameData.completedColorsCount,
+        myCompletedCount: gameData.completedColorsCount,
+        oppCompletedCount: oppData.completedColorsCount,
+        raceChips: gameData.colorProgress.filter(cp => cp.total > 0).map(cp => {
+          const oppCp = oppData.colorProgress.find(o => o.color === cp.color);
+          const self = flow.viewingOpponent ? oppCp : cp;
+          const other = flow.viewingOpponent ? cp : oppCp;
+          let state = 'locked';
+          let badgeText = '';
+          let badgeBg = 'transparent';
+          if (self.complete) {
+            if (!other.complete) { state = 'first'; badgeText = '1st'; badgeBg = 'oklch(78% 0.15 85)'; }
+            else { state = 'second'; badgeText = '2nd'; badgeBg = 'oklch(88% 0.015 78)'; }
+          }
+          return {
+            hex: self.hex, pct: self.pct, state, badgeText, badgeBg,
+            opacity: state === 'locked' ? 0.35 : 1,
+          };
+        }),
+      },
+    };
+  }
+}
+
+</script>
+</body>
+</html>

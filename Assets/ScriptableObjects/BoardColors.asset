@@ -10,7 +10,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: d6b42282c07ea5440951e98b5113484f, type: 3}
-  m_Name: Colors
+  m_Name: BoardColors
   m_EditorClassIdentifier: Assembly-CSharp::ColorPalette
   red: {r: 1, g: 0.5801887, b: 0.5801887, a: 1}
   blue: {r: 0.5803922, g: 0.7267119, b: 1, a: 1}

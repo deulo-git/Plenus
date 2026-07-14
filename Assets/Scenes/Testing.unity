@@ -8979,10 +8979,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameDebugUI
   gameStatusText: {fileID: 1167976225}
-  p1Panel: {fileID: 1509300465}
-  p2Panel: {fileID: 1593339686}
+  p1Panel: {fileID: 42260802}
+  p2Panel: {fileID: 1474711801}
   defaultPanelColor: {r: 0.2735849, g: 0.2735849, b: 0.2735849, a: 0.12941177}
-  currentPanelColor: {r: 1, g: 0.92863727, b: 0.6367924, a: 0.12941177}
+  currentPanelColor: {r: 0.6603774, g: 0.6603774, b: 0.6603774, a: 0.12941177}
 --- !u!114 &1715565138
 MonoBehaviour:
   m_ObjectHideFlags: 0

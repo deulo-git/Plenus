@@ -1,4 +1,3 @@
-﻿using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -13,6 +12,10 @@ public class DiceManager : MonoBehaviour
 
     public bool AreDiceRolled { get; private set; } = false;
 
+    // Which dice the local player last selected (used so the network layer can lock the
+    // exact same dice on every machine when a selection is confirmed).
+    public int SelectedNumericIndex { get; private set; } = -1;
+    public int SelectedColorIndex { get; private set; } = -1;
 
     [Header("Debug")]
     [SerializeField] private DiceDebugUI debugUI;
@@ -31,108 +34,51 @@ public class DiceManager : MonoBehaviour
     private int[] rolledNumbers = new int[3];
     private CellColor[] rolledColors = new CellColor[3];
 
-
-
     public void ResetDiceState()
     {
         AreDiceRolled = false;
-
+        SelectedNumericIndex = -1;
+        SelectedColorIndex = -1;
     }
 
-    // 1. THe button click now delegates the decision to the GameManager
+    // The Roll button now asks the HOST to roll (authoritative). The host generates the
+    // values and broadcasts them so both machines display the identical roll.
     public void OnRollDiceButtonClicked()
     {
         if (GameManager.Instance != null)
         {
-            GameManager.Instance.ProcessRollAction();
+            GameManager.Instance.OnRollButtonPressed();
         }
     }
 
-    // 2. Simply rolls 3 numbers, animates them, and returns the total score
-    public int RollNumericDiceOnly()
+    // Called on EVERY machine from the network layer with the host's roll.
+    // colorActive is false during the initiative phase (numeric dice only).
+    public void ApplyRoll(int[] numericValues, int[] colorFaces, bool colorActive)
     {
-        int total = 0;
-        for (int i = 0; i < numericDice.Length; i++)
+        if (numericValues != null)
         {
-            int roll = Random.Range(1, 7);
-            rolledNumbers[i] = roll;
-            total += roll;
-
-            if (numericDice[i] != null)
-                numericDice[i].Roll(roll - 1);
-        }
-        AreDiceRolled = true;
-        return total;
-    }
-
-    // 3. Rolls all 6 dice and updates the console
-    public void RollAllDice()
-    {
-        SetDiceInteractable(true);
-        // 1. Safety check for Numeric Dice
-        if (numericDice != null)
-        {
-            for (int i = 0; i < numericDice.Length; i++)
+            for (int i = 0; i < numericDice.Length && i < numericValues.Length; i++)
             {
+                rolledNumbers[i] = numericValues[i];
                 if (numericDice[i] != null)
-                {
-                    // Trigger the roll animation/logic
-                    // numericDice[i].Roll(); 
-                }
-                else
-                {
-                    Debug.LogWarning($"[DiceManager] Numeric Dice at index {i} is not assigned in the Inspector.");
-                }
+                    numericDice[i].Roll(numericValues[i] - 1);
             }
         }
 
-        // 2. Safety check for Color Dice (prevents crashing while Blender models are WIP)
-        if (colorDice != null)
+        if (colorActive && colorFaces != null)
         {
-            for (int i = 0; i < colorDice.Length; i++)
+            for (int i = 0; i < colorDice.Length && i < colorFaces.Length; i++)
             {
+                rolledColors[i] = MapFaceToCellColor((ColorFace)colorFaces[i]);
                 if (colorDice[i] != null)
-                {
-                    // Trigger the roll animation/logic
-                    // colorDice[i].Roll();
-                }
-                else
-                {
-                    // Game won't crash anymore, it will just notify you in yellow
-                    Debug.LogWarning($"[DiceManager] Color Dice at index {i} is missing. Waiting for 3D models.");
-                }
+                    colorDice[i].Roll(colorFaces[i]);
             }
         }
-
-
-        // Roll numeric dice
-        for (int i = 0; i < numericDice.Length; i++)
-        {
-            int numResult = Random.Range(1, 7);
-            rolledNumbers[i] = numResult;
-
-            if (numericDice[i] != null)
-                numericDice[i].Roll(numResult - 1);           
-        }
-
-
-        // Roll colour dice
-        int colorDiceCount = Mathf.Max(colorDice.Length, colorDice != null ? colorDice.Length : 0);
-        for (int i = 0; i < colorDiceCount; i++)
-        {
-            ColorFace colorResult = (ColorFace)Random.Range(0, 6);
-            rolledColors[i] = MapFaceToCellColor(colorResult);
-
-            if (colorDice != null && i < colorDice.Length && colorDice[i] != null)
-            {
-                colorDice[i].Roll((int)colorResult);
-            }
-
-            char diceLetter = (char)('A' + i);
-        }
-        debugUI.Refresh(rolledNumbers, rolledColors);
 
         AreDiceRolled = true;
+
+        if (debugUI != null)
+            debugUI.Refresh(rolledNumbers, rolledColors);
     }
 
     /// <summary>
@@ -140,6 +86,8 @@ public class DiceManager : MonoBehaviour
     /// </summary>
     public void SetDiceInteractable(bool isInteractable)
     {
+        if (DiceButtonUI.Instance == null) return;
+
         foreach (Button btn in DiceButtonUI.Instance.numericButtons)
         {
             if (btn != null) btn.interactable = isInteractable;
@@ -153,6 +101,9 @@ public class DiceManager : MonoBehaviour
 
     public void SelectNumericDie(int diceIndex, Button clickedButton)
     {
+        // Only the player whose turn it is may pick dice.
+        if (GameManager.Instance != null && !GameManager.Instance.IsMyTurn) return;
+
         if (SelectionManager.Instance != null && SelectionManager.Instance.HasCellsSelected)
         {
             SelectionManager.Instance.CancelSelection();
@@ -169,22 +120,26 @@ public class DiceManager : MonoBehaviour
             return;
         }
 
+        SelectedNumericIndex = diceIndex;
         SelectionManager.Instance.SetPendingNumber(rolledNumbers[diceIndex]);
-
     }
 
     public void SelectColorDie(int diceIndex, Button clickedButton)
     {
+        // Only the player whose turn it is may pick dice.
+        if (GameManager.Instance != null && !GameManager.Instance.IsMyTurn) return;
+
         if (SelectionManager.Instance != null && SelectionManager.Instance.HasCellsSelected)
         {
             SelectionManager.Instance.CancelSelection();
-            SelectionManager.Instance.SetPendingColor(rolledColors[diceIndex]);            
+            SelectionManager.Instance.SetPendingColor(rolledColors[diceIndex]);
         }
 
         if (diceIndex < 0 || diceIndex >= rolledColors.Length) return;
 
         buttonUI.SelectColor(clickedButton);
 
+        SelectedColorIndex = diceIndex;
         SelectionManager.Instance.SetPendingColor(rolledColors[diceIndex]);
     }
 

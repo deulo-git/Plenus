@@ -1,4 +1,4 @@
-﻿using Assets.Scripts;
+using Assets.Scripts;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
@@ -24,49 +24,51 @@ public class ScoreUI : MonoBehaviour
 
     private List<GameObject> activeWildcardIcons = new List<GameObject>();
 
-    // Crida aquest mètode cada cop que el jugador fa un moviment 
+    // Crida aquest mètode cada cop que el jugador fa un moviment.
+    // Every serialized reference is null-guarded: this panel is now driven from the
+    // network layer, and a missing Inspector slot must never throw (that would abort
+    // the game-start RPC on the host).
     public void UpdateUI(PlayerData player, BoardManager playerBoard)
     {
-        // Actualitza el nom del jugador
         if (player == null) return;
-        playerNameText.text = player.playerName;
 
-        // 1. Actualitzar Puntuació
-        totalScoreText.text = $"Score: {player.score}";
+        if (playerNameText != null)
+            playerNameText.text = player.playerName;
 
-        // 2. Actualitzar Comodins
+        if (totalScoreText != null)
+            totalScoreText.text = $"Score: {player.score}";
+
         UpdateWildcards(player.wildcardsRemaining, player);
-
-        // 3. Actualitzar Files completades (Text A-O)
         UpdateRowsText(player);
-
-        // 4. Actualitzar Colors completats
         UpdateColorStatus(player);
 
-        // 5. Actualitzar Estrelles totals
         int playableColors = System.Enum.GetValues(typeof(CellColor)).Length - 1;
-        totalStarsText.text = $"Stars: [{player.totalStarsCollected}/{BoardGenerator.STAR_COLOR * playableColors}]";
 
-        totalMarkedCellsText.text = $"Cells: [{playerBoard.GetMarkedCellsCount()}/{BoardGenerator.ROWS * BoardGenerator.COLS}]";
+        if (totalStarsText != null)
+            totalStarsText.text = $"Stars: [{player.totalStarsCollected}/{BoardGenerator.STAR_COLOR * playableColors}]";
+
+        if (totalMarkedCellsText != null && playerBoard != null)
+            totalMarkedCellsText.text = $"Cells: [{playerBoard.GetMarkedCellsCount()}/{BoardGenerator.ROWS * BoardGenerator.COLS}]";
     }
 
     private void UpdateWildcards(int count, PlayerData player)
     {
-        // Neteja icones actuals
+        if (wildcardContainer == null || wildcardPrefab == null) return;
+
         foreach (var icon in activeWildcardIcons) Destroy(icon);
         activeWildcardIcons.Clear();
 
-        // Crea tantes icones com comodins queden
         for (int i = 0; i < count; i++)
         {
             GameObject icon = Instantiate(wildcardPrefab, wildcardContainer.transform);
             activeWildcardIcons.Add(icon);
         }
-
     }
 
     private void UpdateRowsText(PlayerData player)
     {
+        if (completedRowsText == null) return;
+
         string text = "Rows: ";
 
         for (int i = 0; i < player.completedRows.Length; i++)
@@ -90,25 +92,27 @@ public class ScoreUI : MonoBehaviour
 
     private void UpdateColorStatus(PlayerData player)
     {
+        if (colorStatusImages == null || colorPalette == null) return;
+
         int imageIndex = 0;
 
         foreach (var pair in player.completedColors)
         {
-            // Ignore colors not completed
             if (pair.Value == CompletionOrder.None)
                 continue;
 
             if (imageIndex >= colorStatusImages.Length)
                 break;
 
-            colorStatusImages[imageIndex].color = colorPalette.GetColor(pair.Key);
+            if (colorStatusImages[imageIndex] != null)
+                colorStatusImages[imageIndex].color = colorPalette.GetColor(pair.Key);
             imageIndex++;
         }
 
-        // Clear remaining images
         while (imageIndex < colorStatusImages.Length)
         {
-            colorStatusImages[imageIndex].color = Color.clear;
+            if (colorStatusImages[imageIndex] != null)
+                colorStatusImages[imageIndex].color = Color.clear;
             imageIndex++;
         }
     }

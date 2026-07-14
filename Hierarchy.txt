@@ -1,0 +1,325 @@
+Main Camera
+  - Transform
+  - Camera
+  - AudioListener
+  - UniversalAdditionalCameraData
+DiceCamera
+  - Transform
+  - Camera
+  - AudioListener
+  - UniversalAdditionalCameraData
+Global Light 2D
+  - Transform
+  - Light2D
+Canvas
+  - RectTransform
+  - Canvas
+  - CanvasScaler
+  - GraphicRaycaster
+  Background
+    - RectTransform
+    - CanvasRenderer
+    - RawImage
+  Confirm_BTN
+    - RectTransform
+    - CanvasRenderer
+    - Image
+    - Button
+    Confirm_BTN_TXT
+      - RectTransform
+      - CanvasRenderer
+      - TextMeshProUGUI
+  PassTurn_BTN
+    - RectTransform
+    - CanvasRenderer
+    - Image
+    - Button
+    PassTurn_BTN_TXT
+      - RectTransform
+      - CanvasRenderer
+      - TextMeshProUGUI
+  Start_BTN
+    - RectTransform
+    - CanvasRenderer
+    - Image
+    - Button
+    Start_BTN_TXT
+      - RectTransform
+      - CanvasRenderer
+      - TextMeshProUGUI
+  Restart_BTN
+    - RectTransform
+    - CanvasRenderer
+    - Image
+    - Button
+    Restart_BTN_TXT
+      - RectTransform
+      - CanvasRenderer
+      - TextMeshProUGUI
+  GameLoopOutput
+    - RectTransform
+    - CanvasRenderer
+    - Image
+    GameOutput_TXT
+      - RectTransform
+      - CanvasRenderer
+      - TextMeshProUGUI
+      - ScrollRect
+  DiePanel
+    - RectTransform
+    - CanvasRenderer
+    - Image
+    - VerticalLayoutGroup
+    DiceManager
+      - Transform
+      - DiceManager
+      - DiceButtonUI
+      DiceTransforms
+        - Transform
+        Rotation-Number1
+          - Transform
+        Rotation-Number2
+          - Transform
+        Rotation-Number3
+          - Transform
+        Rotation-Number4
+          - Transform
+        Rotation-Number5
+          - Transform
+        Rotation-Number6
+          - Transform
+        Rotation-Green
+          - Transform
+        Rotation-Orange
+          - Transform
+        Rotation-Yellow
+          - Transform
+        Rotation-Red
+          - Transform
+        Rotation-Blue
+          - Transform
+        Rotation-Black
+          - Transform
+      Dice-Objects
+        - Transform
+        ColourDice
+          - Transform
+          - DiceRoller
+          default
+            - Transform
+            - MeshFilter
+            - MeshRenderer
+        ColourDice-2
+          - Transform
+          - DiceRoller
+          default
+            - Transform
+            - MeshFilter
+            - MeshRenderer
+        ColourDice-3
+          - Transform
+          - DiceRoller
+          default
+            - Transform
+            - MeshFilter
+            - MeshRenderer
+        NumericDice
+          - Transform
+          - DiceRoller
+          default
+            - Transform
+            - MeshFilter
+            - MeshRenderer
+        NumericDice-2
+          - Transform
+          - DiceRoller
+          default
+            - Transform
+            - MeshFilter
+            - MeshRenderer
+        NumericDice-3
+          - Transform
+          - DiceRoller
+          default
+            - Transform
+            - MeshFilter
+            - MeshRenderer
+    DiceButtons
+      - RectTransform
+      - HorizontalLayoutGroup
+      DiceUI
+        - RectTransform
+        - CanvasRenderer
+        - RawImage
+        - GridLayoutGroup
+        NumericDice1_BTN
+          - RectTransform
+          - CanvasRenderer
+          - Image
+          - Button
+          - DiceButton
+        NumericDice2_BTN
+          - RectTransform
+          - CanvasRenderer
+          - Image
+          - Button
+          - DiceButton
+        NumericDice3_BTN
+          - RectTransform
+          - CanvasRenderer
+          - Image
+          - Button
+          - DiceButton
+        ColourDice1_BTN
+          - RectTransform
+          - CanvasRenderer
+          - Image
+          - Button
+          - DiceButton
+        ColourDice2_BTN
+          - RectTransform
+          - CanvasRenderer
+          - Image
+          - Button
+          - DiceButton
+        ColourDice3_BTN
+          - RectTransform
+          - CanvasRenderer
+          - Image
+          - Button
+          - DiceButton
+    DiceRoll_BTN
+      - RectTransform
+      Roll_BTN
+        - RectTransform
+        - CanvasRenderer
+        - Image
+        - Button
+        Text (TMP)
+          - RectTransform
+          - CanvasRenderer
+          - TextMeshProUGUI
+  DieOutput
+    - RectTransform
+    - CanvasRenderer
+    - Image
+    DiceOutput_TXT
+      - RectTransform
+      - CanvasRenderer
+      - TextMeshProUGUI
+  SelectionOutput
+    - RectTransform
+    - CanvasRenderer
+    - Image
+    SelectionOutput_TXT
+      - RectTransform
+      - CanvasRenderer
+      - TextMeshProUGUI
+  Board_P1_Host_0
+    - RectTransform
+    - Image
+    - CanvasRenderer
+    - GridLayoutGroup
+    - NetworkObject
+    - BoardManager
+  BoardPlayerPanel
+    - RectTransform
+    - CanvasRenderer
+    - Image
+    - HorizontalLayoutGroup
+    - ScoreUI
+    Left
+      - RectTransform
+      - VerticalLayoutGroup
+      - CanvasRenderer
+      - Image
+      Title
+        - RectTransform
+        TitleAPlayer_TXT
+          - RectTransform
+          - CanvasRenderer
+          - TextMeshProUGUI
+      PlayerAComodin
+        - RectTransform
+        - GridLayoutGroup
+      ScorePlayerA_TXT
+        - RectTransform
+        - CanvasRenderer
+        - TextMeshProUGUI
+    Right
+      - RectTransform
+      - VerticalLayoutGroup
+      GameObject
+        - RectTransform
+        - HorizontalLayoutGroup
+        PlayerACells_TXT
+          - RectTransform
+          - CanvasRenderer
+          - TextMeshProUGUI
+        PlayerAStars_TXT
+          - RectTransform
+          - CanvasRenderer
+          - TextMeshProUGUI
+      PlayerARows_TXT
+        - RectTransform
+        - CanvasRenderer
+        - TextMeshProUGUI
+      ColorCompleted
+        - RectTransform
+        - HorizontalLayoutGroup
+        ColorCompTitle_TXT
+          - RectTransform
+          - CanvasRenderer
+          - TextMeshProUGUI
+        Colors
+          - RectTransform
+          - HorizontalLayoutGroup
+          PlayerALeftColorImage
+            - RectTransform
+            - CanvasRenderer
+            - RawImage
+          PlayerARightColorImage
+            - RectTransform
+            - CanvasRenderer
+            - RawImage
+EventSystem
+  - Transform
+  - EventSystem
+  - InputSystemUIInputModule
+GameManager
+  - Transform
+  - TestingConsole
+  - NetworkObject
+  - GameManager
+  - ScoreManager
+SelectionManager
+  - Transform
+  - SelectionManager
+UIDebug
+  - Transform
+  - DiceDebugUI
+  - SelectionDebugUI
+  - GameDebugUI
+  - ScoreUI
+Player(Clone)
+  - Transform
+  - NetworkObject
+  - PlayerNetwork
+Player(Clone)
+  - Transform
+  - NetworkObject
+  - PlayerNetwork
+Board_P1_Host_0
+  - RectTransform
+  - Image
+  - CanvasRenderer
+  - GridLayoutGroup
+  - NetworkObject
+  - BoardManager
+Board_P2_Client_1
+  - RectTransform
+  - Image
+  - CanvasRenderer
+  - GridLayoutGroup
+  - NetworkObject
+  - BoardManager

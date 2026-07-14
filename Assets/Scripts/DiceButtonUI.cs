@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using UnityEngine.UI;
 
 public class DiceButtonUI : MonoBehaviour
@@ -57,6 +57,24 @@ public class DiceButtonUI : MonoBehaviour
         }
     }
 
+    // Lock specific dice by index. Used by the network layer so that when one player
+    // "uses up" a numeric die and a color die, those exact dice are locked on EVERY
+    // machine (leaving the leftovers for the passive player).
+    public void LockByIndex(int numIndex, int colorIndex)
+    {
+        if (numericButtons != null && numIndex >= 0 && numIndex < numericButtons.Length && numericButtons[numIndex] != null)
+        {
+            numericButtons[numIndex].image.color = lockedColor;
+            numericButtons[numIndex].interactable = false;
+        }
+
+        if (colorButtons != null && colorIndex >= 0 && colorIndex < colorButtons.Length && colorButtons[colorIndex] != null)
+        {
+            colorButtons[colorIndex].image.color = lockedColor;
+            colorButtons[colorIndex].interactable = false;
+        }
+    }
+
     public void ResetAll()
     {
         foreach (Button button in numericButtons)
@@ -83,6 +101,4 @@ public class DiceButtonUI : MonoBehaviour
             button.interactable = active;
         }
     }
-
-
 }

@@ -1,9 +1,11 @@
-﻿using Assets.Scripts;
+using Assets.Scripts;
 using System.Collections.Generic;
+using System.Globalization;
+using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.UI;
 
-public class BoardManager : MonoBehaviour
+public class BoardManager : NetworkBehaviour
 {
     [Header("Dependencies")]
     public Transform gridContainer;
@@ -21,6 +23,73 @@ public class BoardManager : MonoBehaviour
     {
         get { return boardData; }
         set { boardData = value; }
+    }
+
+    // ------------------------------------------------------------------
+    // ONLINE NOTE:
+    // Boards are no longer network-spawned/reparented (that was fragile and
+    // caused the "NetworkObject can only be re-parented after being spawned!"
+    // error and the invisible host board). Instead, GameManager instantiates
+    // boards LOCALLY on each machine and feeds them the layout the server sent,
+    // via BuildFromData(...). So OnNetworkSpawn is intentionally left inert.
+    // ------------------------------------------------------------------
+    public override void OnNetworkSpawn()
+    {
+        base.OnNetworkSpawn();
+    }
+
+    // Build (or rebuild) this board directly from a ready-made layout.
+    // Works without any networking: pure local construction.
+    public void BuildFromData(CellData[,] data)
+    {
+        boardData = data;
+        ClearBoard();
+        SetupGridLayout();
+        SpawnCells();
+        LinkLogicToViews();
+    }
+
+    // Mark a single cell (identified by its row-major index) as marked, and refresh its
+    // visual. Used to apply moves that arrive over the network. Idempotent: marking an
+    // already-marked cell does nothing harmful.
+    public void MarkCellByIndex(int index)
+    {
+        if (index < 0 || index >= allCellViews.Count) return;
+
+        CellView cv = allCellViews[index];
+        if (cv != null && cv.LogicData != null)
+        {
+            cv.LogicData.IsMarked = true;
+            cv.UpdateMarkedVisual();
+        }
+    }
+
+    // Show a live "preview" selection on this board: clears all selection highlights,
+    // then highlights the given cell indices. Used to mirror the opponent's in-progress
+    // picks onto the opponent board (does not mark anything).
+    public void SetPreviewSelection(int[] indices)
+    {
+        for (int i = 0; i < allCellViews.Count; i++)
+        {
+            if (allCellViews[i] != null) allCellViews[i].SetSelectedVisual(false);
+        }
+
+        if (indices == null) return;
+
+        foreach (int idx in indices)
+        {
+            if (idx >= 0 && idx < allCellViews.Count && allCellViews[idx] != null)
+                allCellViews[idx].SetSelectedVisual(true);
+        }
+    }
+
+    // Make this board read-only (used for the opponent view) or interactive again.
+    public void SetInteractable(bool interactable)
+    {
+        CanvasGroup cg = GetComponent<CanvasGroup>();
+        if (cg == null) cg = gameObject.AddComponent<CanvasGroup>();
+        cg.interactable = interactable;
+        cg.blocksRaycasts = interactable;
     }
 
     public void GenerateBoard()
