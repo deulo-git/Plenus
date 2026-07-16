@@ -12,10 +12,25 @@ EditorBuildSettings:
     path: Assets/Scenes/Menu.unity
     guid: 8988147c0d57ae749b10157f2f1734e1
   - enabled: 1
+    path: Assets/Scenes/Profile.unity
+    guid: bbdbfbf0dfe755f49aa4d050742aa560
+  - enabled: 1
+    path: Assets/Scenes/InitialFight.unity
+    guid: 49e8feb50b4df6c49915c6669061ea7f
+  - enabled: 1
     path: Assets/Scenes/Main.unity
     guid: c92a4c8c47a8d79408d69b32c8373a48
+  - enabled: 1
+    path: Assets/Scenes/PlayerConfig.unity
+    guid: ff1053c81cf6ba0418a52f54d905d7eb
   - enabled: 0
     path: Assets/Scenes/Testing.unity
     guid: 8c9cfa26abfee488c85f1582747f6a02
+  - enabled: 1
+    path: Assets/Scenes/HostLobby.unity
+    guid: de3f529f5da53134cad1bc8c8ece2c32
+  - enabled: 1
+    path: Assets/Scenes/JoinLobby.unity
+    guid: ce4606446561a72449fb5811318f5583
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 2bcd2660ca9b64942af0de543d8d7100, type: 3}

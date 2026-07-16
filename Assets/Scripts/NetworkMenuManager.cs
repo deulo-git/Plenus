@@ -1,110 +1,277 @@
-﻿using Unity.Netcode;
-using UnityEngine;
+using System;
+using System.Threading.Tasks;
+using Unity.Netcode;
+using Unity.Netcode.Transports.UTP;
+using Unity.Services.Authentication;
+using Unity.Services.Core;
+using Unity.Services.Relay;
+using Unity.Services.Relay.Models;
 using TMPro;
-using UnityEngine.UI;
+using UnityEngine;
 using UnityEngine.SceneManagement; // Required for LoadSceneMode
+using UnityEngine.Serialization;
+using UnityEngine.UI;
 
+/// <summary>
+/// Lobby menu networking over the internet using Unity Relay.
+///
+/// Flow: the Host creates a Relay allocation, gets a short join code, and
+/// StartHost()s through Relay. The other player types that code and joins the
+/// same allocation, then StartClient()s. No IP addresses, no port forwarding —
+/// Relay routes both players through Unity's servers. This also works for two
+/// machines on the same LAN, so it replaces the old direct-IP connection.
+///
+/// Requires Unity Gaming Services set up (project linked + Relay enabled) and
+/// the com.unity.services.multiplayer package installed.
+/// </summary>
 public class NetworkMenuManager : MonoBehaviour
 {
     [Header("UI References")]
     [SerializeField] private Button hostButton;
     [SerializeField] private Button joinButton;
-    [SerializeField] private Button startGameButton; // NEW: Button to start the game
+    [SerializeField] private Button startGameButton; // Shown to the host once someone joins
     [SerializeField] private TextMeshProUGUI statusText;
+
+    [Header("Relay")]
+    [Tooltip("The client types the host's join code here. When hosting, the " +
+             "generated code is written into this same field so it's easy to copy. " +
+             "(Renamed from the old LAN 'ipInputField'.)")]
+    [FormerlySerializedAs("ipInputField")]
+    [SerializeField] private TMP_InputField joinCodeInput;
+
+    [Tooltip("Optional. If assigned, the host's join code is shown here in big. " +
+             "If null, it is shown in the status text instead. (Renamed from 'localIpText'.)")]
+    [FormerlySerializedAs("localIpText")]
+    [SerializeField] private TextMeshProUGUI codeDisplayText;
+
+    [Tooltip("Total players in a match (host included). A 2-player game needs 1 extra Relay connection.")]
+    [SerializeField] private int maxPlayers = 2;
+
+    // Relay's secure transport protocol. "dtls" = encrypted UDP (recommended);
+    // "udp" is unencrypted; "wss" is for WebGL builds.
+    private const string RelayConnectionType = "dtls";
+
+    // Guards UGS init/sign-in so it happens exactly once even if both buttons
+    // are pressed or the flow is retried.
+    private Task _servicesReady;
 
     private void Start()
     {
-        // Add listeners to the buttons
-        hostButton.onClick.AddListener(StartHost);
-        joinButton.onClick.AddListener(StartClient);
-        startGameButton.onClick.AddListener(StartGame); // NEW: Listener for the start button
+        if(SceneManager.GetActiveScene().name == "Menu")
+        {
+            hostButton.onClick.AddListener(OnHostClicked);
+            joinButton.onClick.AddListener(OnJoinClicked);
+            startGameButton.onClick.AddListener(StartGame);
+
+            NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
+            NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
+            NetworkManager.Singleton.OnTransportFailure += OnTransportFailure;
+        }
         
-        // Subscribe to the event: "Tell me when ANY client successfully connects"
-        NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
+
+        // Warm up Unity Gaming Services in the background so the first Host/Join
+        // press doesn't have to wait for initialization + sign-in.
+        _servicesReady = InitializeServicesAsync();
     }
 
     private void OnDestroy()
     {
-        // Best practice: Unsubscribe when the object is destroyed to prevent memory leaks
         if (NetworkManager.Singleton != null)
         {
             NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
+            NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientDisconnected;
+            NetworkManager.Singleton.OnTransportFailure -= OnTransportFailure;
         }
     }
 
-    private void StartHost()
+    // ================= UGS INITIALIZATION =================
+
+    // Initializes Unity Services and signs in anonymously (Relay needs an
+    // authenticated session; anonymous is enough and is per-machine).
+    private async Task InitializeServicesAsync()
     {
-        if (NetworkManager.Singleton.StartHost())
-        {
-            statusText.text = "Host started successfully. Waiting for players...";
-            DisableButtons();
-        }
-        else
-        {
-            statusText.text = "Failed to start Host.";
-        }
+        if (UnityServices.State != ServicesInitializationState.Initialized)
+            await UnityServices.InitializeAsync();
+
+        if (!AuthenticationService.Instance.IsSignedIn)
+            await AuthenticationService.Instance.SignInAnonymouslyAsync();
     }
 
-    private void StartClient()
+    // Awaits (and if needed retries) the one-time init before any Relay call.
+    private Task EnsureServicesReady()
     {
-        if (NetworkManager.Singleton.StartClient())
+        if (_servicesReady == null || _servicesReady.IsFaulted || _servicesReady.IsCanceled)
+            _servicesReady = InitializeServicesAsync();
+        return _servicesReady;
+    }
+
+    private UnityTransport Transport => NetworkManager.Singleton.GetComponent<UnityTransport>();
+
+    // ================= HOST =================
+
+    private async void OnHostClicked()
+    {
+        DisableButtons();
+        statusText.text = "Creating room...";
+
+        try
         {
-            // We just say "Connecting..." here. The actual "Connected!" text 
-            // will be handled by the OnClientConnected callback.
-            statusText.text = "Connecting to Host...";
-            DisableButtons();
+            await EnsureServicesReady();
+
+            // maxPlayers includes the host; Relay counts the OTHER connections.
+            int maxConnections = Mathf.Max(1, maxPlayers - 1);
+            Allocation allocation = await RelayService.Instance.CreateAllocationAsync(maxConnections);
+            string joinCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
+
+            Transport.SetRelayServerData(allocation.ToRelayServerData(RelayConnectionType));
+
+            if (NetworkManager.Singleton.StartHost())
+            {
+                ShowJoinCode(joinCode);
+            }
+            else
+            {
+                statusText.text = "Could not start the host. Try again.";
+                EnableButtons();
+            }
         }
-        else
+        catch (Exception e)
         {
-            statusText.text = "Failed to initiate connection.";
+            Debug.LogError($"[Relay] Host failed: {e}");
+            statusText.text = "Could not create the room. Check your internet connection.";
+            EnableButtons();
         }
     }
 
-    // This function runs automatically whenever a connection is fully established
+    // ================= JOIN =================
+
+    private async void OnJoinClicked()
+    {
+        string joinCode = joinCodeInput != null ? joinCodeInput.text.Trim().ToUpperInvariant() : "";
+        if (string.IsNullOrEmpty(joinCode))
+        {
+            statusText.text = "Type the room code first.";
+            return;
+        }
+
+        DisableButtons();
+        statusText.text = $"Joining room {joinCode}...";
+
+        try
+        {
+            await EnsureServicesReady();
+
+            JoinAllocation joinAllocation = await RelayService.Instance.JoinAllocationAsync(joinCode);
+            Transport.SetRelayServerData(joinAllocation.ToRelayServerData(RelayConnectionType));
+
+            if (!NetworkManager.Singleton.StartClient())
+            {
+                statusText.text = "Could not start the connection. Try again.";
+                EnableButtons();
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[Relay] Join failed: {e}");
+            statusText.text = "Wrong code, or the room no longer exists.";
+            EnableButtons();
+        }
+    }
+
+    // ================= CONNECTION CALLBACKS =================
+
     private void OnClientConnected(ulong clientId)
     {
-        // If the ID that just connected matches OUR ID, it means we successfully joined
         if (clientId == NetworkManager.Singleton.LocalClientId)
         {
             statusText.text = "Connected!";
         }
-        // If we are the Host, update the text to show someone joined
         else if (NetworkManager.Singleton.IsHost)
         {
             statusText.text = $"Player {clientId} joined the game! Ready to start.";
         }
 
-        // NEW: Check if we are the Host and if there are enough players (2 in this case)
         if (NetworkManager.Singleton.IsHost && NetworkManager.Singleton.ConnectedClientsList.Count >= 2)
         {
-            // Only the Host will see the "Start Game" button
             startGameButton.gameObject.SetActive(true);
         }
     }
 
-    // NEW: Function to load the Main scene
+    // On a client this fires for a failed/dropped connection, so we reset the menu
+    // instead of leaving it stuck on "Joining...".
+    private void OnClientDisconnected(ulong clientId)
+    {
+        if (NetworkManager.Singleton == null) return;
+
+        if (!NetworkManager.Singleton.IsServer && clientId == NetworkManager.Singleton.LocalClientId)
+        {
+            string reason = NetworkManager.Singleton.DisconnectReason;
+            statusText.text = string.IsNullOrEmpty(reason)
+                ? "Disconnected. Check the code and try again."
+                : $"Disconnected: {reason}";
+            ResetMenu();
+        }
+        else if (NetworkManager.Singleton.IsServer && NetworkManager.Singleton.ConnectedClientsList.Count < 2)
+        {
+            statusText.text = "The other player left. Waiting for players...";
+            startGameButton.gameObject.SetActive(false);
+        }
+    }
+
+    private void OnTransportFailure()
+    {
+        statusText.text = "Network error - connection closed. You can try again.";
+        ResetMenu();
+    }
+
+    private void ResetMenu()
+    {
+        EnableButtons();
+        startGameButton.gameObject.SetActive(false);
+    }
+
+    // ================= START THE MATCH =================
+
+    // Loads the InitialFight scene, where the initiative roll-off decides
+    // who starts; that scene then loads Main with the winner already known.
     private void StartGame()
     {
-        Debug.Log(NetworkManager.Singleton.ConnectedClientsList.Count);
-        foreach (var client in NetworkManager.Singleton.ConnectedClientsIds)
-        {
-            Debug.Log(client);
-        }
-        // Double check: Only the server/host is allowed to change the networked scene
         if (NetworkManager.Singleton.IsServer)
         {
             statusText.text = "Loading game...";
-
-            // Use NetworkManager's SceneManager to load the scene. 
-            // This ensures all connected clients automatically load the scene as well.
-            NetworkManager.Singleton.SceneManager.LoadScene("Main", LoadSceneMode.Single);
+            NetworkManager.Singleton.SceneManager.LoadScene("InitialFight", LoadSceneMode.Single);
         }
+    }
+
+    // ================= HELPERS =================
+
+    private void ShowJoinCode(string joinCode)
+    {
+        // Put the code where the client would type it too, so the host can just
+        // read/copy it off the screen.
+        if (joinCodeInput != null)
+        {
+            joinCodeInput.SetTextWithoutNotify(joinCode);
+            joinCodeInput.interactable = false;
+        }
+
+        string message = $"Room code: {joinCode}\nShare it with the other player. Waiting for them to join...";
+        if (codeDisplayText != null)
+            codeDisplayText.text = $"Code: {joinCode}";
+
+        statusText.text = message;
     }
 
     private void DisableButtons()
     {
-        // Prevent clicking multiple times
         hostButton.interactable = false;
         joinButton.interactable = false;
+    }
+
+    private void EnableButtons()
+    {
+        hostButton.interactable = true;
+        joinButton.interactable = true;
+        if (joinCodeInput != null) joinCodeInput.interactable = true;
     }
 }

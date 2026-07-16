@@ -94,22 +94,34 @@ public static class DatabaseManager
 
     private static void CreateSchema()
     {
-        // Execute the embedded schema statement by statement.
-        foreach (string statement in DatabaseSchema.Sql.Split(';'))
+        // Strip SQL line comments BEFORE splitting on ';'. A comment may legally
+        // contain a ';' (e.g. "...numeric wildcard; color_die 'Black'..."), and a
+        // naive Split(';') would cut that comment in half and leak its tail
+        // ("color_die 'Black' = color wildcard.") into the front of the next
+        // statement, producing a bogus "syntax error near color_die". Removing
+        // comments first makes ';' an unambiguous statement terminator (this
+        // schema never puts ';' inside a string literal).
+        string sql = StripSqlLineComments(DatabaseSchema.Sql);
+
+        foreach (string statement in sql.Split(';'))
         {
-            if (IsOnlyCommentsOrWhitespace(statement)) continue;
+            if (string.IsNullOrWhiteSpace(statement)) continue;
             Execute(statement.Trim() + ";");
         }
     }
 
-    private static bool IsOnlyCommentsOrWhitespace(string sql)
+    // Removes "-- ... (end of line)" comments from each line. Safe for this schema
+    // because no string literal contains the "--" sequence.
+    private static string StripSqlLineComments(string sql)
     {
+        var builder = new System.Text.StringBuilder(sql.Length);
         foreach (string line in sql.Split('\n'))
         {
-            string t = line.Trim();
-            if (t.Length > 0 && !t.StartsWith("--")) return false;
+            int commentStart = line.IndexOf("--", StringComparison.Ordinal);
+            builder.Append(commentStart >= 0 ? line.Substring(0, commentStart) : line);
+            builder.Append('\n');
         }
-        return true;
+        return builder.ToString();
     }
 
     // SQLite transactions are connection-level; plain BEGIN/COMMIT avoids
@@ -167,6 +179,29 @@ public static class DatabaseManager
         Execute("INSERT OR IGNORE INTO players(name) VALUES (@name);", ("@name", playerName));
         Execute("UPDATE players SET last_seen_at = datetime('now') WHERE name = @name;", ("@name", playerName));
         return ExecuteScalarLong("SELECT player_id FROM players WHERE name = @name;", ("@name", playerName));
+    }
+
+    /// <summary>
+    /// Deletes a player's local profile row — but ONLY if they never actually
+    /// finished/played a match. match_players.player_id has no ON DELETE
+    /// CASCADE on purpose: a hard delete would either be rejected outright by
+    /// the foreign key (players row still referenced) or, if we cascaded it,
+    /// would silently erase the OPPONENT's record of a match they both
+    /// played. So real match history is intentionally preserved even after
+    /// account deletion — the account itself (the login) is still fully gone,
+    /// since that's deleted separately via Unity Authentication.
+    /// Returns true if the local row was removed, false if it was left in
+    /// place because history exists.
+    /// </summary>
+    public static bool DeletePlayerIfNoHistory(long playerId)
+    {
+        long historyCount = ExecuteScalarLong(
+            "SELECT COUNT(*) FROM match_players WHERE player_id = @p;", ("@p", playerId));
+        if (historyCount > 0)
+            return false;
+
+        Execute("DELETE FROM players WHERE player_id = @p;", ("@p", playerId));
+        return true;
     }
 
     // ------------------------------------------------------------------

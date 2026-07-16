@@ -7,14 +7,18 @@ TrueTypeFontImporter:
   forceTextureCase: -2
   characterSpacing: 0
   characterPadding: 1
-  includeFontData: 1
+  includeFontData: 0
   fontNames:
   - Baloo 2
-  fallbackFontReferences: []
+  fallbackFontReferences:
+  - {fileID: 12800000, guid: 1f13702d6e656ad46bcf0d1539405395, type: 3}
+  - {fileID: 12800000, guid: 41c75b996ded89d4a8094e6e91a615fd, type: 3}
+  - {fileID: 12800000, guid: f6d6fc1c94364df419ca5f275dbb96c8, type: 3}
+  - {fileID: 12800000, guid: 238b8327f724aab44be306c609a417d2, type: 3}
   customCharacters: 
   fontRenderingMode: 0
-  ascentCalculationMode: 1
-  useLegacyBoundsCalculation: 0
+  ascentCalculationMode: 0
+  useLegacyBoundsCalculation: 1
   shouldRoundAdvanceValue: 1
   userData: 
   assetBundleName: 

@@ -20,6 +20,11 @@ public class DebugConsoleController : MonoBehaviour
     [SerializeField] private GameObject dicePanel;        // DieOutput
     [SerializeField] private GameObject selectionPanel;   // SelectionOutput
 
+    [Header("Extra panel piggybacking on one of the tabs above (not a tab of its own)")]
+    [SerializeField] private GameObject boardPlayerPanel;      // BoardPlayerPanel
+    [Tooltip("Index into the tab list above (0=Game, 1=Dice, 2=Selection) that boardPlayerPanel shows alongside.")]
+    [SerializeField] private int boardPlayerPanelTabIndex = 0;
+
     [Header("Canvas the tab bar gets built into (auto-found if left empty)")]
     [SerializeField] private Canvas targetCanvas;
 
@@ -35,6 +40,7 @@ public class DebugConsoleController : MonoBehaviour
         panels = new[] { gameLoopPanel, dicePanel, selectionPanel };
         foreach (var p in panels)
             if (p != null) p.SetActive(false);
+        if (boardPlayerPanel != null) boardPlayerPanel.SetActive(false);
 
         if (targetCanvas == null) targetCanvas = GetComponentInParent<Canvas>();
         if (targetCanvas == null) targetCanvas = FindFirstObjectByType<Canvas>();
@@ -74,6 +80,9 @@ public class DebugConsoleController : MonoBehaviour
     {
         for (int i = 0; i < panels.Length; i++)
             if (panels[i] != null) panels[i].SetActive(consoleOpen && i == activeTab);
+
+        if (boardPlayerPanel != null)
+            boardPlayerPanel.SetActive(consoleOpen && activeTab == boardPlayerPanelTabIndex);
     }
 
     private void BuildTabBar()

@@ -407,6 +407,21 @@ public class GameManager : NetworkBehaviour
         ResetDiceClientRpc();
         SetColorDiceActiveClientRpc(false);
 
+        // If the InitialFight scene already decided who starts, skip the in-match
+        // initiative phase entirely and begin the first round with that winner.
+        if (InitiativeResult.HasResult)
+        {
+            ulong winner = InitiativeResult.Consume();
+            bool winnerConnected = winner == player1.clientId || winner == player2.clientId;
+            if (winnerConnected)
+            {
+                PushScoreStates();
+                ServerBeginMatch(winner);
+                return;
+            }
+            Debug.LogWarning("[Network] InitiativeResult winner is not a connected player; falling back to the in-match initiative phase.");
+        }
+
         // Set the actual game state FIRST so that, even if a downstream UI refresh has a
         // problem, the game has already started (state = Initiative) rather than aborting.
         netActiveClientId.Value = player1.clientId;
@@ -529,6 +544,14 @@ public class GameManager : NetworkBehaviour
         }
 
         ulong winner = p1 > p2 ? player1.clientId : player2.clientId;
+        ServerBeginMatch(winner);
+    }
+
+    // Starts round 1 with the given initiative winner. Called either from the
+    // in-match initiative phase above, or directly from StartGame when the
+    // InitialFight scene already decided the winner.
+    private void ServerBeginMatch(ulong winner)
+    {
         netActiveClientId.Value = winner;
         roundStartingClientId = winner;
         netState.Value = (int)GameState.ActivePlayerTurn;

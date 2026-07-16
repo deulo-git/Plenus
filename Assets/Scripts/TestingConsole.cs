@@ -18,6 +18,8 @@ public class TestingConsole : MonoBehaviour
     private BoardValidator validator;
     private SelectionManager selectionManager;
 
+
+
     void Start()
     {
         validator = new BoardValidator();
