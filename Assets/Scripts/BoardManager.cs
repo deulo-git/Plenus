@@ -174,10 +174,23 @@ public class BoardManager : NetworkBehaviour
                     }
 
                     // Logic for the middle row frames
+                    // Logic for the middle row frames
                     if (r == BoardGenerator.MIDDLE_ROW && framePrefab != null)
                     {
-                        GameObject frame = Instantiate(framePrefab, cv.transform, false);
-                        frame.transform.localPosition = Vector3.zero;
+                        //GameObject frame = Instantiate(framePrefab, cv.transform, false);
+                        //frame.transform.localPosition = Vector3.zero;
+
+                        RectTransform fillingObject = cv.transform.Find("FillingObject") as RectTransform;
+                        if (fillingObject != null)
+                        {
+                            // Assegura que està en stretch (ancoratges a les 4 cantonades),
+                            // que és el que fa que Left/Right/Top/Bottom tinguin sentit.
+                            fillingObject.anchorMin = Vector2.zero;   // (0,0)
+                            fillingObject.anchorMax = Vector2.one;    // (1,1)
+
+                            fillingObject.offsetMin = new Vector2(6f, 6f);    // Left = 6, Bottom = 6
+                            fillingObject.offsetMax = new Vector2(-6f, -6f);  // Right = 6, Top = 6
+                        }
                     }
 
                     viewIndex++;

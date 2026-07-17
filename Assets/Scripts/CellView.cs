@@ -3,7 +3,9 @@ using UnityEngine.UI;
 
 public class CellView : MonoBehaviour
 {
-    private Image baseImage;
+    // abans:  private Image baseImage;
+    [SerializeField] private Image fillImage;     // la Image del FillingObject (la que es pinta)
+    [SerializeField] private Button cellButton;   // el Button del FillingObject
     public GameObject crossOverlay;      
     public GameObject selectionOverlay;  
     public BoardManager ParentBoardManager { get; private set; }
@@ -11,7 +13,6 @@ public class CellView : MonoBehaviour
 
     private void Awake()
     {
-        baseImage = GetComponent<Image>();
         if (crossOverlay != null) crossOverlay.SetActive(false);
         if (selectionOverlay != null) selectionOverlay.SetActive(false);
     }
@@ -19,7 +20,8 @@ public class CellView : MonoBehaviour
     public void Initialize(CellData data, Color color, BoardManager boardManager)
     {
         LogicData = data;
-        baseImage.color = color;
+        fillImage.color = color;
+
         ParentBoardManager = boardManager; // Guardem la referència
 
         if (crossOverlay != null) crossOverlay.SetActive(data.IsMarked);
@@ -46,21 +48,21 @@ public class CellView : MonoBehaviour
 
     public void UpdateMarkedVisual()
     {
-        if (crossOverlay != null) {
-            Button cellButton = GetComponent<Button>();
-            if (cellButton != null) {
+        if (crossOverlay != null)
+        {
+            if (cellButton != null)
+            {
                 ColorBlock colors = cellButton.colors;
                 colors.normalColor = new Color(colors.normalColor.r, colors.normalColor.g, colors.normalColor.b, 0.8f);
                 cellButton.colors = colors;
+                cellButton.interactable = !LogicData.IsMarked;
             }
-            cellButton.interactable = !LogicData.IsMarked;
             if (LogicData.HasStar)
             {
                 RawImage starImage = crossOverlay.GetComponent<RawImage>();
                 Color starColor = starImage.color;
-                starColor.a = 0.3f;                                
+                starColor.a = 0.3f;
             }
-            
             crossOverlay.SetActive(LogicData.IsMarked);
         }
     }
