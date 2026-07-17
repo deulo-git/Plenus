@@ -328,6 +328,9 @@ public class GameManager : NetworkBehaviour
         Debug.Log(viewingOpponent
             ? "[Network] Now viewing the OPPONENT's board (read-only)."
             : "[Network] Now viewing MY OWN board.");
+
+        // Keep the stats panel in sync with the board now on screen.
+        RefreshLocalScorePanel();
     }
 
     // ================= START ORCHESTRATION =================
@@ -892,6 +895,18 @@ public class GameManager : NetworkBehaviour
         {
             if (panel != null) panel.UpdateUI(local, localBoard);
         }
+
+        // Board-owner stats panel (jokers / colors / stars / rows). It shows the
+        // owner of whichever board is currently on screen: the local player, or
+        // the opponent when their board is being viewed. Both players' data is
+        // synced on every machine, so this is always available.
+        PlayerData viewed = viewingOpponent
+            ? ((myId == player1.clientId) ? player2 : player1)
+            : local;
+        BoardPlayerPanelUI[] boardPanels =
+            FindObjectsByType<BoardPlayerPanelUI>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        foreach (BoardPlayerPanelUI bp in boardPanels)
+            if (bp != null) bp.Refresh(viewed);
     }
 
     // ================= WIN (log only for now) =================

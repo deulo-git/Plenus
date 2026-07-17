@@ -168,7 +168,12 @@ public class BoardManager : NetworkBehaviour
 
                     if (data.HasStar)
                     {
-                        GameObject star = Instantiate(starPrefab, cv.transform);
+                        // Place the star inside the cell's inner FillingObject (the painted
+                        // area), not on the Cell root, so it sits within the margins.
+                        // Falls back to the Cell itself if FillingObject isn't present.
+                        Transform fillingObject = cv.transform.Find("FillingObject");
+                        Transform starParent = fillingObject != null ? fillingObject : cv.transform;
+                        GameObject star = Instantiate(starPrefab, starParent);
                         star.transform.SetAsFirstSibling();
                         star.transform.localPosition = Vector3.zero;
                     }
