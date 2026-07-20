@@ -4,7 +4,9 @@ using System.Collections.Generic;
 using Assets.Scripts;
 using Unity.Collections;
 using Unity.Netcode;
+using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 // Compact, network-friendly snapshot of one player's score-relevant state.
 // All fields are primitives so it works as a NetworkVariable value.
@@ -56,6 +58,21 @@ public class GameManager : NetworkBehaviour
 
     [Header("Debug")]
     [SerializeField] private GameDebugUI debugUI;
+
+    [Header("End of match")]
+    // The end-of-match panel (EndingCanvas). It starts INACTIVE; this serialized
+    // reference stays valid anyway and EndGameUI.Show() re-activates it.
+    [SerializeField] private EndGameUI endGameUI;
+
+    [Header("Board view / action buttons")]
+    // Label on the Opponent_BTN: shows the name of the board currently on screen
+    // ("My Board" or "<Opponent>'s board"), updated whenever the view is toggled.
+    [SerializeField] private TextMeshProUGUI opponentButtonLabel;
+    // Optional separate board-name title (if you add one). Same text as the button.
+    [SerializeField] private TextMeshProUGUI boardNameLabel;
+    // The Pass button. Disabled while it wouldn't do anything (e.g. before rolling
+    // on your active turn), so the player can't pass without having rolled.
+    [SerializeField] private Button passButton;
 
     // ------------------------------------------------------------------
     // AUTHORITATIVE, SYNCED GAME STATE (written by the server only)
@@ -329,8 +346,50 @@ public class GameManager : NetworkBehaviour
             ? "[Network] Now viewing the OPPONENT's board (read-only)."
             : "[Network] Now viewing MY OWN board.");
 
+        // Reflect the board now on screen in the button label / board-name title.
+        UpdateBoardNameUI();
+
         // Keep the stats panel in sync with the board now on screen.
         RefreshLocalScorePanel();
+    }
+
+    // Show the name of the board currently on screen ("My Board" or
+    // "<Opponent>'s board") on the toggle button and the optional title label.
+    private void UpdateBoardNameUI()
+    {
+        if (opponentButtonLabel == null && boardNameLabel == null) return;
+
+        ulong myId = NetworkManager.Singleton != null
+            ? NetworkManager.Singleton.LocalClientId
+            : player1.clientId;
+        PlayerData opponent = (myId == player1.clientId) ? player2 : player1;
+
+        string opponentName = (opponent != null && !string.IsNullOrWhiteSpace(opponent.playerName))
+            ? $"{opponent.playerName}'s board"
+            : "Opponent's board";
+        string current = viewingOpponent ? opponentName : "My Board";
+
+        if (opponentButtonLabel != null) opponentButtonLabel.text = current;
+        if (boardNameLabel != null) boardNameLabel.text = current;
+    }
+
+    // Enable the Pass button only when passing is actually allowed: on your active
+    // turn only after you've rolled, and on your passive turn (no roll there).
+    private void UpdateActionButtons()
+    {
+        if (passButton == null) return;
+
+        bool canPass = false;
+        if (NetworkManager.Singleton != null
+            && netActiveClientId.Value == NetworkManager.Singleton.LocalClientId
+            && !gameOver)
+        {
+            GameState s = (GameState)netState.Value;
+            if (s == GameState.ActivePlayerTurn) canPass = netDiceRolled.Value;
+            else if (s == GameState.PassivePlayerTurn) canPass = true;
+        }
+
+        passButton.interactable = canPass;
     }
 
     // ================= START ORCHESTRATION =================
@@ -383,6 +442,9 @@ public class GameManager : NetworkBehaviour
 
         player1Board = boardsByClient.ContainsKey(p1Id) ? boardsByClient[p1Id] : null;
         player2Board = boardsByClient.ContainsKey(p2Id) ? boardsByClient[p2Id] : null;
+
+        // Names are resolved by now: initialise the board-name label to "My Board".
+        UpdateBoardNameUI();
     }
 
     [ClientRpc]
@@ -784,6 +846,11 @@ public class GameManager : NetworkBehaviour
     public void PassTurn()
     {
         if (!IsMyTurn) return;
+        // On your active turn you must roll before you can pass. (No dice are rolled
+        // on the passive turn, so passing is allowed there.)
+        if (CurrentState == GameState.ActivePlayerTurn
+            && DiceManager.Instance != null && !DiceManager.Instance.AreDiceRolled)
+            return;
         if (selectionManager != null) selectionManager.CancelSelection();
         RequestPassServerRpc();
     }
@@ -794,6 +861,14 @@ public class GameManager : NetworkBehaviour
         if (gameOver) return;
         ulong sender = rpcParams.Receive.SenderClientId;
         if (sender != netActiveClientId.Value) return;
+
+        // Authoritative guard: can't pass an active turn before the dice are rolled.
+        if ((GameState)netState.Value == GameState.ActivePlayerTurn && !netDiceRolled.Value)
+        {
+            SvSetMessage("You must roll the dice before you can pass.");
+            return;
+        }
+
         ServerEndTurn();
     }
 
@@ -934,6 +1009,16 @@ public class GameManager : NetworkBehaviour
         PushScoreStates();
         Debug.Log(result);
 
+        // Show the end-of-match panel on every machine. We pass the final score
+        // snapshots inside the RPC so the panel never depends on the ordering
+        // between NetworkVariable deltas and this RPC (clients apply them first).
+        if (IsServer)
+        {
+            ShowEndGameClientRpc(
+                BuildScoreSync(player1, player1Board),
+                BuildScoreSync(player2, player2Board));
+        }
+
         LogPlayerScore(player1);
         LogPlayerScore(player2);
 
@@ -953,6 +1038,30 @@ public class GameManager : NetworkBehaviour
                 dbMatchId = -1;
             });
         }
+    }
+
+    // Activate and fill the end-of-match panel on every client (host included).
+    // Runs inside the same game-over flow, so it must never throw.
+    [ClientRpc]
+    private void ShowEndGameClientRpc(PlayerScoreSync p1, PlayerScoreSync p2)
+    {
+        // On remote clients, apply the authoritative final snapshots before the
+        // panel reads player1/player2. The host already holds the live data.
+        if (!IsServer)
+        {
+            ApplyScoreState(player1, p1);
+            ApplyScoreState(player2, p2);
+        }
+
+        EndGameUI ui = endGameUI != null ? endGameUI : EndGameUI.Instance;
+        if (ui == null)
+        {
+            Debug.LogWarning("[EndGame] No EndGameUI reference or instance found; ending panel not shown.");
+            return;
+        }
+
+        try { ui.Show(); }
+        catch (Exception e) { Debug.LogWarning($"[EndGame] Ending panel failed to show: {e.Message}"); }
     }
 
     // ================= UI FEEDBACK =================
@@ -1004,6 +1113,9 @@ public class GameManager : NetworkBehaviour
 
     public void RefreshUIFeedback()
     {
+        // Keep the Pass button in sync on every state change (runs even without a debugUI).
+        UpdateActionButtons();
+
         if (debugUI == null) return;
 
         GameState s = (GameState)netState.Value;

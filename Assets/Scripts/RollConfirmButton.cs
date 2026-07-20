@@ -31,6 +31,33 @@ public class RollConfirmButton : MonoBehaviour
     {
         Mode desired = ComputeMode();
         if (desired != currentMode) ApplyMode(desired);
+
+        // Interactability is refreshed every frame (not only on mode changes),
+        // because in Confirm mode it also depends on the current dice selection.
+        UpdateInteractable();
+    }
+
+    // Roll: always clickable when it's your turn. Confirm: clickable ONLY once you
+    // have selected BOTH dice (one number + one colour). None: never clickable.
+    private void UpdateInteractable()
+    {
+        if (button == null) return;
+
+        bool on;
+        switch (currentMode)
+        {
+            case Mode.Roll: on = true; break;
+            case Mode.Confirm: on = BothDiceSelected(); break;
+            default: on = false; break;
+        }
+
+        button.interactable = on;
+    }
+
+    private static bool BothDiceSelected()
+    {
+        var sm = SelectionManager.Instance;
+        return sm != null && sm.ActiveNumber.HasValue && sm.ActiveColor.HasValue;
     }
 
     private Mode ComputeMode()
@@ -53,13 +80,9 @@ public class RollConfirmButton : MonoBehaviour
     {
         currentMode = mode;
 
-        if (mode == Mode.None)
-        {
-            if (button != null) button.interactable = false;
-            return;
-        }
-
-        if (button != null) button.interactable = true;
+        // Interactability is handled by UpdateInteractable(); ApplyMode only drives
+        // the visuals (label + colours).
+        if (mode == Mode.None) return;
 
         Color c = (mode == Mode.Roll) ? rollColor : confirmColor;
         if (label != null) label.text = (mode == Mode.Roll) ? rollText : confirmText;
